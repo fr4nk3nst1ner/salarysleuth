@@ -87,17 +87,17 @@ def main():
             print(f"Job URL: {url}")
             print(f"Company: \033[35m{company_name}\033[0m")
             if median_salary == "No Entries on levels.fyi :(":
-                print(f"Median Salary for Software Engineer: {median_salary}")
+                print(f"Median Total Comp for Software Engineer: {median_salary}")
             else:
                 median_salary = int(median_salary.replace(",", "").replace("$", ""))
                 if median_salary >= 300000:
-                    print(f"Median Salary for Software Engineer: \033[32m{median_salary:,}\033[0m")
+                    print(f"Median Total Comp for Software Engineer: \033[32m{median_salary:,}\033[0m")
                 elif median_salary >= 200000:
-                    print(f"Median Salary for Software Engineer: \033[92m{median_salary:,}\033[0m")
+                    print(f"Median Total Comp for Software Engineer: \033[92m{median_salary:,}\033[0m")
                 elif median_salary >= 100000:
-                    print(f"Median Salary for Software Engineer: \033[93m{median_salary:,}\033[0m")
+                    print(f"Median Total Comp for Software Engineer: \033[93m{median_salary:,}\033[0m")
                 else:
-                    print(f"Median Salary for Software Engineer: \033[31m{median_salary:,}\033[0m")
+                    print(f"Median Total Comp for Software Engineer: \033[31m{median_salary:,}\033[0m")
             print("-" * 50)
 
     if args.company:
@@ -108,13 +108,13 @@ def main():
         else:
             median_salary = int(median_salary.replace(",", "").replace("$", ""))
             if median_salary >= 300000:
-                print(f"Median Salary for Software Engineer: \033[32m{median_salary:,}\033[0m")
+                print(f"Median Total Comp for Software Engineer: \033[32m{median_salary:,}\033[0m")
             elif median_salary >= 200000:
-                print(f"Median Salary for Software Engineer: \033[92m{median_salary:,}\033[0m")
+                print(f"Median Total Comp for Software Engineer: \033[92m{median_salary:,}\033[0m")
             elif median_salary >= 100000:
-                print(f"Median Salary for Software Engineer: \033[93m{median_salary:,}\033[0m")
+                print(f"Median Total Comp for Software Engineer: \033[93m{median_salary:,}\033[0m")
             else:
-                print(f"Median Salary for Software Engineer: \033[31m{median_salary:,}\033[0m")
+                print(f"Median Total Comp for Software Engineer: \033[31m{median_salary:,}\033[0m")
         print("-" * 50)
 
 
