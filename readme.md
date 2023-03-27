@@ -3,7 +3,7 @@ This is a Python program that checks the median salaries of software engineers f
 
 ## Usage
 ```bash
-python salarychecker.py [job_characteristic] [-h | --help]
+python salarychecker.py [-j | --job job_characteristic] [-c | --company companyname] [-h | --help]
 ```
 
 ## Options
