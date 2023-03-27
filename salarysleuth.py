@@ -1,4 +1,5 @@
 import argparse
+from argparse import RawTextHelpFormatter,SUPPRESS
 import re
 import subprocess
 import requests
@@ -59,7 +60,7 @@ def get_company_name(url):
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Salary Checker Tool")
+        parser = argparse.ArgumentParser(description="Examples: \n python salarysleuth.py -j kali \n python salarysleuth.py -j oscp \n python salarysleuth.py -c rapid7 \n python3 salarysleuth.py -c salesforce", formatter_class=RawTextHelpFormatter,usage=SUPPRESS)
     parser.add_argument("-j", "--job", type=str, help="Job characteristic to search for on job listing websites")
     parser.add_argument("-c", "--company", type=str, help="Name of a specific company to search for salary information")
 
