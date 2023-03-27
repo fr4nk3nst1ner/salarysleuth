@@ -85,7 +85,7 @@ def main():
             median_salary = get_salary(company_name)
 
             print(f"Job URL: {url}")
-            print(f"Company: {company_name}")
+            print(f"Company: \033[35m{company_name}\033[0m")
             if median_salary == "No Entries on levels.fyi :(":
                 print(f"Median Salary for Software Engineer: {median_salary}")
             else:
@@ -102,7 +102,7 @@ def main():
 
     if args.company:
         median_salary = get_salary(args.company)
-        print(f"Company: {args.company}")
+        print(f"Company: \033[35m{args.company}\033[0m")
         if median_salary == "No Entries on levels.fyi :(":
             print(f"Median Salary for Software Engineer: {median_salary}")
         else:
