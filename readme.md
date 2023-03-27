@@ -3,7 +3,7 @@ This is a Python program that checks the median salaries of software engineers f
 
 ## Usage
 ```bash
-python salarychecker.py [-j | --job job_characteristic] [-c | --company companyname] [-h | --help]
+python salarysleuth.py [-j | --job job_characteristic] [-c | --company companyname] [-h | --help]
 ```
 
 ## Options
@@ -13,18 +13,18 @@ python salarychecker.py [-j | --job job_characteristic] [-c | --company companyn
 
 ## Example
 ```bash
-python salarychecker.py -j "Penetration Test"
-python salarychecker.py -j "OSCP"
+python salarysleuth.py -j "Penetration Test"
+python salarysleuth.py -j "OSCP"
 
-python salarychecker.py -c "Salesforce"
-python salarychecker.py -c "Rapid7"
+python salarysleuth.py -c "Salesforce"
+python salarysleuth.py -c "Rapid7"
 ```
 
 ## Installation
-1. Clone the repository: git clone https://github.com/fr4nk3nst1ner/salarychecker.git
+1. Clone the repository: git clone https://github.com/fr4nk3nst1ner/salarysleuth.git
 2. Install the required Python packages
 3. Install [go-dork](https://github.com/dwisiswant0/go-dork)
-4. Run the program: python salarychecker.py [job_title]
+4. Run the program: python salarysleuth.py [job_title]
 
 ## Requirements
 * Python 3.6 or higher
