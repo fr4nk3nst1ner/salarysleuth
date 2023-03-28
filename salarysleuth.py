@@ -1,5 +1,5 @@
 import argparse
-from argparse import RawTextHelpFormatter,SUPPRESS
+from argparse import RawTextHelpFormatter, SUPPRESS
 import re
 import subprocess
 import requests
@@ -57,18 +57,24 @@ def get_company_name(url):
 
     return company_name
 
-
+def print_banner(silence):
+    if not silence:
+        print(BANNER)
 
 def main():
-    parser = argparse.ArgumentParser(description="Examples: \n python salarysleuth.py -j kali \n python salarysleuth.py -j oscp \n python salarysleuth.py -c rapid7 \n python3 salarysleuth.py -c salesforce", formatter_class=RawTextHelpFormatter,usage=SUPPRESS)
+    parser = argparse.ArgumentParser(description="Examples: \n python salarysleuth.py -j kali \n python salarysleuth.py -j oscp \n python salarysleuth.py -c rapid7 \n python salarysleuth.py -c salesforce", formatter_class=RawTextHelpFormatter,usage=SUPPRESS)
     parser.add_argument("-j", "--job", type=str, help="Job characteristic to search for on job listing websites")
     parser.add_argument("-c", "--company", type=str, help="Name of a specific company to search for salary information")
+    parser.add_argument("-s", "--silence", action="store_true", help="Silence the banner")
 
     args = parser.parse_args()
 
     if not args.job and not args.company:
         print("Please provide a job title or company name to search for. Use --help for usage details.")
         return
+
+    print_banner(args.silence)
+
 
     if args.job:
         dork_query = f"site:lever.co OR site:greenhouse.io {args.job}"
@@ -120,6 +126,5 @@ def main():
 
 
 if __name__ == "__main__":
-    print(BANNER)
     main()
 
