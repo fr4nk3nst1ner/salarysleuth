@@ -40,7 +40,7 @@ def get_salary(company_name):
 
     # Extract salary info using BeautifulSoup
     soup = BeautifulSoup(html, "html.parser")
-    salary_elem = soup.find("td", text="Software Engineer Salary")
+    salary_elem = soup.find("td", string="Software Engineer Salary")
     if salary_elem:
         salary = salary_elem.find_next_sibling("td").text
         return salary
