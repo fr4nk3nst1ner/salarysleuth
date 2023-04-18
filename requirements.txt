@@ -1,0 +1,4 @@
+argparse
+re
+bs4
+requests
