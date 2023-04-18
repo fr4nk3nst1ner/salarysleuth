@@ -22,7 +22,7 @@ def get_job_urls(query):
     godork_cmd = f'go-dork -e google -p 50 -s -q "{query}"'
 
     # Run the go-dork command and capture the output
-    output = subprocess.check_output(godork_cmd, shell=True)
+    output = subprocess.check_output(godork_cmd, shell=True, stderr=subprocess.DEVNULL)
 
     # Decode the output as a string
     output_str = output.decode('utf-8')
