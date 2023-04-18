@@ -17,9 +17,9 @@ $$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$
 """
 
 
-def get_job_urls(query):
+def get_job_urls(query, num_pages, search_engine):
     # Define the go-dork command
-    godork_cmd = f'go-dork -e google -p 50 -s -q "{query}"'
+    godork_cmd = f'go-dork -e {search_engine} -p {num_pages} -s -q "{query}"'
 
     # Run the go-dork command and capture the output
     output = subprocess.check_output(godork_cmd, shell=True, stderr=subprocess.DEVNULL)
@@ -67,6 +67,8 @@ def main():
     parser.add_argument("-j", "--job", type=str, help="Job characteristic to search for on job listing websites")
     parser.add_argument("-c", "--company", type=str, help="Name of a specific company to search for salary information")
     parser.add_argument("-s", "--silence", action="store_true", help="Silence the banner")
+    parser.add_argument("-p", "--pages", type=int, default=50, help="Number of search result pages to scrape (default: 50)")
+    parser.add_argument("-e", "--engine", type=str, default='google', help="Search engine to use (default: google). \n Options: Google, Shodan, Bing, Duck, Yahoo, Ask \n Note: Only tested with Google")
 
     args = parser.parse_args()
 
@@ -79,7 +81,7 @@ def main():
 
     if args.job:
         dork_query = f"site:lever.co OR site:greenhouse.io {args.job}"
-        job_urls = get_job_urls(dork_query)
+        job_urls = get_job_urls(dork_query, args.pages, args.engine)
 
         # uncomment these lines if you want unique companeies only 
         #seen_companies = set()
