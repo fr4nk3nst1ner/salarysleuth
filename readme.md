@@ -33,3 +33,6 @@ python salarysleuth.py -c "Rapid7"
 
 ## Disclaimer
 This program is for educational and informational purposes only. The salary information provided is not guaranteed to be accurate or up-to-date.
+
+## Shoutout
+Tip of the hat to [dwisiswant0](https://github.com/dwisiswant0) for [go-dork](https://github.com/dwisiswant0/go-dork).
