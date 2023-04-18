@@ -31,11 +31,13 @@ python salarysleuth.py -c "Rapid7"
 * BeautifulSoup and requests Python packages (`pip install -r requirements.txt`)
 
 ## Installation
-1. git clone https://github.com/fr4nk3nst1ner/salarysleuth.git
-2. cd salarysleuth
-3. pip install -r requirements.txt
-3. GO111MODULE=on go install dw1.io/go-dork@latest
-4. python salarysleuth.py -h
+```bash
+git clone https://github.com/fr4nk3nst1ner/salarysleuth.git
+cd salarysleuth
+pip install -r requirements.txt
+GO111MODULE=on go install dw1.io/go-dork@latest
+python salarysleuth.py -h
+```
 
 ## Disclaimer
 This program is for educational and informational purposes only. The salary information provided is not guaranteed to be accurate or up-to-date.
