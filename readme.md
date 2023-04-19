@@ -1,4 +1,4 @@
-# 💰 Salary Checker 💰
+# 💰 $alary $leuth 💰
 This is a Python program that checks the median salaries of software engineers for companies that have a job posting with a certain keyword in their job description. It uses the go-dork command line tool to search for job postings, and the levels.fyi website to retrieve salary information for a given company.
 
 ## Usage
