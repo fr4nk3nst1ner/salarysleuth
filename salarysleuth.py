@@ -5,6 +5,7 @@ import re
 import subprocess
 import requests
 from bs4 import BeautifulSoup
+from tqdm import tqdm
 
 
 BANNER = """
@@ -21,6 +22,7 @@ def get_job_urls(query, num_pages, search_engine):
     # Define the go-dork command
     godork_cmd = f'go-dork -e {search_engine} -p {num_pages} -s -q "{query}"'
 
+
     # Run the go-dork command and capture the output
     output = subprocess.check_output(godork_cmd, shell=True, stderr=subprocess.DEVNULL)
 
@@ -33,8 +35,10 @@ def get_job_urls(query, num_pages, search_engine):
     return job_urls
 
 
-def get_salary(company_name):
+def get_salary(company_name, use_decimal=False):
     url = f"https://www.levels.fyi/companies/{company_name}/salaries/"
+
+    # Make request to levels page and raise an exception if there's an error
     response = requests.get(url)
     html = response.content.decode()
 
@@ -43,12 +47,12 @@ def get_salary(company_name):
     salary_elem = soup.find("td", string="Software Engineer Salary")
     if salary_elem:
         salary = salary_elem.find_next_sibling("td").text
-        salary = int(salary.replace(",", "").replace("$", ""))
-        salary = float(salary) if salary else None
+        salary = salary.replace(",", "").replace("$", "")
+        salary = float(salary) if use_decimal else int(salary)
         return {'company': company_name, 'salary': salary}
 
     return None
-    #return "No Entries on levels.fyi :("
+
 
 
 def get_company_name(url):
@@ -66,16 +70,21 @@ def print_banner(silence):
         print(BANNER)
 
 def colorize_salary(salary):
-    if salary is None:
-        return "No Data"
-    elif salary >= 300000:
-        return f"\033[32m${salary:,.0f}\033[0m"
+    salary = str(salary).replace('$', '').replace(',', '')
+    salary = re.sub('\x1b\[.*?m', '', salary)  # Remove color codes
+    salary = float(salary)
+    
+    if salary >= 300000:
+        return "\033[32m${:,.0f}\033[0m".format(salary)
     elif salary >= 200000:
-        return f"\033[92m${salary:,.0f}\033[0m"
+        return "\033[92m${:,.0f}\033[0m".format(salary)
     elif salary >= 100000:
-        return f"\033[93m${salary:,.0f}\033[0m"
+        return "\033[93m${:,.0f}\033[0m".format(salary)
     else:
-        return f"\033[31m${salary:,.0f}\033[0m"
+        return "\033[31m${:,.0f}\033[0m".format(salary)
+
+
+
 
 
 
@@ -102,25 +111,28 @@ def main():
         job_urls = get_job_urls(dork_query, args.pages, args.engine)
 
         salaries = []
-        for url in job_urls:
+        for url in tqdm(job_urls, desc='Processing job URLs'):
             company_name = get_company_name(url)
             salary_dict = get_salary(company_name)
             if salary_dict is not None:
                 salary_dict['url'] = url  # Add URL to salary_dict
+                if args.table:
+                    salary_dict['salary'] = colorize_salary(salary_dict['salary'])
+                else:
+                    salary_dict['salary'] = colorize_salary(salary_dict['salary']) if salary_dict['salary'] else 'No Data'
                 salaries.append(salary_dict)
+
 
         if args.table:
             # Sort the salaries list based on the median salary
-            salaries = sorted(salaries, key=lambda x: x['salary'], reverse=True)
+            salaries = sorted(salaries, key=lambda x: int(re.sub(r'\x1b\[\d+m|\$', '', x['salary']).replace(',', '')) if isinstance(x['salary'], str) else x['salary'], reverse=True)
 
             # Print the table header
             print("\033[1m{:<16} {:<16} {:<50}\033[0m".format("Company Name", "Median Salary", "Job URL"))
 
-
             # Print each row in the table
             for salary in salaries:
                 print("{:<25} {:<25} {:<50}".format("\033[35m" + salary['company'] + "\033[0m", colorize_salary(salary['salary']), salary['url']))
-
         else:
             for salary in salaries:
                 print(f"Job URL: {url}")
@@ -129,32 +141,26 @@ def main():
                     print("No salary information found for this company.")
                 else:
                     median_salary = salary['salary']
-                    if median_salary >= 300000:
-                        print(f"Median Total Comp for Software Engineer: \033[32m${median_salary:,}\033[0m")
-                    elif median_salary >= 200000:
-                        print(f"Median Total Comp for Software Engineer: \033[92m${median_salary:,}\033[0m")
-                    elif median_salary >= 100000:
-                        print(f"Median Total Comp for Software Engineer: \033[93m${median_salary:,}\033[0m")
-                    else:
-                        print(f"Median Total Comp for Software Engineer: \033[31m${median_salary:,}\033[0m")
+                    print(f"Median Total Comp for Software Engineer: {colorize_salary(median_salary)}")
                 print("-" * 50)
 
+
+
     if args.company:
-        median_salary = get_salary(args.company)
+        median_salary = get_salary(args.company, use_decimal=args.table)
         print(f"Company: \033[35m{median_salary['company']}\033[0m")
         if median_salary['salary'] is None:
             print("No salary information found for this company.")
         else:
             median_salary = median_salary['salary']
-            if median_salary >= 300000:
-                print(f"Median Total Comp for Software Engineer: \033[32m${median_salary:,}\033[0m")
-            elif median_salary >= 200000:
-                print(f"Median Total Comp for Software Engineer: \033[92m${median_salary:,}\033[0m")
-            elif median_salary >= 100000:
-                print(f"Median Total Comp for Software Engineer: \033[93m${median_salary:,}\033[0m")
+            if args.table:
+                print(f"Median Total Comp for Software Engineer: {colorize_salary(median_salary)}")
             else:
-                print(f"Median Total Comp for Software Engineer: \033[31m${median_salary:,}\033[0m")
+                print(f"Median Total Comp for Software Engineer: {colorize_salary(int(median_salary))}")
         print("-" * 50)
+
+
+
 
 
 if __name__ == "__main__":
