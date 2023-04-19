@@ -110,17 +110,19 @@ def main():
         dork_query = f"site:lever.co OR site:greenhouse.io {args.job}"
         job_urls = get_job_urls(dork_query, args.pages, args.engine)
 
+
+
         salaries = []
         for url in tqdm(job_urls, desc='Processing job URLs'):
             company_name = get_company_name(url)
             salary_dict = get_salary(company_name)
             if salary_dict is not None:
                 salary_dict['url'] = url  # Add URL to salary_dict
-                if args.table:
-                    salary_dict['salary'] = colorize_salary(salary_dict['salary'])
-                else:
-                    salary_dict['salary'] = colorize_salary(salary_dict['salary']) if salary_dict['salary'] else 'No Data'
+                salary_dict['salary'] = colorize_salary(salary_dict['salary']) if salary_dict['salary'] else 'No Data'
                 salaries.append(salary_dict)
+            else:
+                salaries.append({'company': company_name, 'salary': None, 'url': url})  # Add company name and None salary to salaries list
+
 
 
         if args.table:
