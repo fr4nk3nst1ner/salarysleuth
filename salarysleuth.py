@@ -56,6 +56,7 @@ def get_salary(company_name, use_decimal=False):
 
 
 def get_company_name(url):
+    
     # Extract the company name from the URL
     match = re.search(r'\/\/[^/]+\/([^/]+)\/', url)
     if match:
@@ -70,6 +71,8 @@ def print_banner(silence):
         print(BANNER)
 
 def colorize_salary(salary):
+    if salary is None:
+        return 'No Data'
     salary = str(salary).replace('$', '').replace(',', '')
     salary = re.sub('\x1b\[.*?m', '', salary)  # Remove color codes
     salary = float(salary)
@@ -126,12 +129,15 @@ def main():
 
 
         if args.table:
+            # Remove entries with no salary data
+            salaries = [s for s in salaries if s['salary'] is not None]
+
             # Sort the salaries list based on the median salary
             salaries = sorted(salaries, key=lambda x: int(re.sub(r'\x1b\[\d+m|\$', '', x['salary']).replace(',', '')) if isinstance(x['salary'], str) else x['salary'], reverse=True)
-
+            
             # Print the table header
             print("\033[1m{:<16} {:<16} {:<50}\033[0m".format("Company Name", "Median Salary", "Job URL"))
-
+            
             # Print each row in the table
             for salary in salaries:
                 print("{:<25} {:<25} {:<50}".format("\033[35m" + salary['company'] + "\033[0m", colorize_salary(salary['salary']), salary['url']))
