@@ -25,6 +25,8 @@ python salarysleuth.py -c "Salesforce"
 python salarysleuth.py -c "Rapid7"
 ```
 
+![Alt Text](https://github.com/fr4nk3nst1ner/salarysleuth/blob/main/resources/salarysleuth_3.gif)
+
 ## Requirements
 * Python 3.6 or higher
 * Go
@@ -46,5 +48,3 @@ This program is for educational and informational purposes only. The salary info
 ## Shoutout
 Tip of the hat to [dwisiswant0](https://github.com/dwisiswant0) for [go-dork](https://github.com/dwisiswant0/go-dork)
 
-## Demo 
-![Alt Text](https://github.com/fr4nk3nst1ner/salarysleuth/blob/main/resources/salarysleuth_3.gif)
