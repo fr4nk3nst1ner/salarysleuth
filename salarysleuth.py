@@ -56,7 +56,7 @@ def get_salary(company_name, use_decimal=False):
 
 
 def get_company_name(url):
-    
+
     # Extract the company name from the URL
     match = re.search(r'\/\/[^/]+\/([^/]+)\/', url)
     if match:
@@ -113,8 +113,6 @@ def main():
         dork_query = f"site:lever.co OR site:greenhouse.io {args.job}"
         job_urls = get_job_urls(dork_query, args.pages, args.engine)
 
-
-
         salaries = []
         for url in tqdm(job_urls, desc='Processing job URLs'):
             company_name = get_company_name(url)
@@ -126,23 +124,21 @@ def main():
             else:
                 salaries.append({'company': company_name, 'salary': None, 'url': url})  # Add company name and None salary to salaries list
 
-
-
         if args.table:
             # Remove entries with no salary data
             salaries = [s for s in salaries if s['salary'] is not None]
 
             # Sort the salaries list based on the median salary
             salaries = sorted(salaries, key=lambda x: int(re.sub(r'\x1b\[\d+m|\$', '', x['salary']).replace(',', '')) if isinstance(x['salary'], str) else x['salary'], reverse=True)
-            
+
             # Print the table header
             print("\033[1m{:<16} {:<16} {:<50}\033[0m".format("Company Name", "Median Salary", "Job URL"))
-            
+
             # Print each row in the table
             for salary in salaries:
-                print("{:<25} {:<25} {:<50}".format("\033[35m" + salary['company'] + "\033[0m", colorize_salary(salary['salary']), salary['url']))
+                print("{:<25} {:<25} {:<50}".format("\033[35m" + salary['company'] + "\033[0m", salary['salary'], salary['url']))
         else:
-            for salary in salaries:
+            for salary, url in zip(salaries, job_urls):
                 print(f"Job URL: {url}")
                 print(f"Company: \033[35m{salary['company']}\033[0m")
                 if salary['salary'] is None:
@@ -151,6 +147,7 @@ def main():
                     median_salary = salary['salary']
                     print(f"Median Total Comp for Software Engineer: {colorize_salary(median_salary)}")
                 print("-" * 50)
+
 
 
 
