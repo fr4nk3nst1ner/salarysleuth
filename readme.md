@@ -24,6 +24,11 @@ python salarysleuth.py -j "OSCP" -p 40
 python salarysleuth.py -c "Salesforce"
 python salarysleuth.py -c "Rapid7"
 ```
+### Docker
+```bash
+docker build -t salarysleuth .
+docker run -it salarysleuth salarysleuth.py --help
+```
 
 ![Alt Text](https://github.com/fr4nk3nst1ner/salarysleuth/blob/main/resources/salarysleuth_3.gif)
 
