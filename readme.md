@@ -47,4 +47,4 @@ This program is for educational and informational purposes only. The salary info
 Tip of the hat to [dwisiswant0](https://github.com/dwisiswant0) for [go-dork](https://github.com/dwisiswant0/go-dork)
 
 ## Demo 
-https://github.com/fr4nk3nst1ner/salarysleuth/blob/main/resources/salarysleuth_3.gif
+![Alt Text](https://github.com/fr4nk3nst1ner/salarysleuth/blob/main/resources/salarysleuth_3.gif)
