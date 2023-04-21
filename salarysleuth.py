@@ -34,7 +34,6 @@ def get_job_urls(query, num_pages, search_engine):
 
     return job_urls
 
-
 def get_salary(company_name, use_decimal=False):
     url = f"https://www.levels.fyi/companies/{company_name}/salaries/"
 
@@ -52,8 +51,6 @@ def get_salary(company_name, use_decimal=False):
         return {'company': company_name, 'salary': salary}
 
     return None
-
-
 
 def get_company_name(url):
 
@@ -87,10 +84,6 @@ def colorize_salary(salary):
         return "\033[31m${:,.0f}\033[0m".format(salary)
 
 
-
-
-
-
 def main():
     parser = argparse.ArgumentParser(description="Examples: \n python salarysleuth.py -j kali \n python salarysleuth.py -j oscp \n python salarysleuth.py -c rapid7 \n python salarysleuth.py -c salesforce", formatter_class=RawTextHelpFormatter,usage=SUPPRESS)
     parser.add_argument("-j", "--job", type=str, help="Job characteristic to search for on job listing websites")
@@ -108,7 +101,7 @@ def main():
 
     print_banner(args.silence)
 
-
+    # do stuff if `-j` is passed, regardless if `-t` is passed 
     if args.job:
         dork_query = f"site:lever.co OR site:greenhouse.io {args.job}"
         job_urls = get_job_urls(dork_query, args.pages, args.engine)
@@ -118,12 +111,15 @@ def main():
             company_name = get_company_name(url)
             salary_dict = get_salary(company_name)
             if salary_dict is not None:
-                salary_dict['url'] = url  # Add URL to salary_dict
+                # Add URL to salary_dict
+                salary_dict['url'] = url  
                 salary_dict['salary'] = colorize_salary(salary_dict['salary']) if salary_dict['salary'] else 'No Data'
                 salaries.append(salary_dict)
             else:
-                salaries.append({'company': company_name, 'salary': None, 'url': url})  # Add company name and None salary to salaries list
-
+                # Add company name and None salary to salaries list
+                salaries.append({'company': company_name, 'salary': None, 'url': url})  
+                
+        # do stuff if `-t` is passed 
         if args.table:
             # Remove entries with no salary data
             salaries = [s for s in salaries if s['salary'] is not None]
@@ -137,6 +133,8 @@ def main():
             # Print each row in the table
             for salary in salaries:
                 print("{:<25} {:<25} {:<50}".format("\033[35m" + salary['company'] + "\033[0m", salary['salary'], salary['url']))
+                
+        # do stuff if `-t` isn't passed 
         else:
             for salary, url in zip(salaries, job_urls):
                 print(f"Job URL: {url}")
@@ -148,9 +146,7 @@ def main():
                     print(f"Median Total Comp for Software Engineer: {colorize_salary(median_salary)}")
                 print("-" * 50)
 
-
-
-
+    # do stuff if `-c` is passed 
     if args.company:
         median_salary = get_salary(args.company, use_decimal=args.table)
         print(f"Company: \033[35m{median_salary['company']}\033[0m")
@@ -163,9 +159,6 @@ def main():
             else:
                 print(f"Median Total Comp for Software Engineer: {colorize_salary(int(median_salary))}")
         print("-" * 50)
-
-
-
 
 
 if __name__ == "__main__":
