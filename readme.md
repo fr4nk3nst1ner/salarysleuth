@@ -1,5 +1,5 @@
 # 💰 $alary $leuth 💰
-This is a Python program that checks the median salaries of software engineers for companies that have a job posting with a certain keyword in their job description. It uses the go-dork command line tool (shoutout to [dwisiswant0](https://github.com/dwisiswant0)) to search for job postings, and the levels.fyi website to retrieve salary information for a given company.
+This is a Python program that checks the median salaries of software engineers for companies that have a job posting with a certain keyword in their job description. It uses the [go-dork](https://github.com/dwisiswant0/go-dork) command line tool (shoutout to [dwisiswant0](https://github.com/dwisiswant0)) to search for job postings, and the levels.fyi website to retrieve salary information for a given company.
 
 ## Usage
 ```bash
@@ -16,18 +16,18 @@ python salarysleuth.py [-j | --job job_characteristic] [-c | --company companyna
 
 Note: Only tested with Google
 
-## Example
-### Search 20 Google pages for jobs that contain "Penetration Test" in its job description but only return data where median salary exist on levels[.]fyi:
+## Examples
+- Search 20 Google pages for jobs that contain "Penetration Test" in its job description but only return data where median salary exist on levels[.]fyi:
 ```bash
 python salarysleuth.py -j "Penetration Test" -t -p20
 ```
 
-### Search 40 Google pages for jobs that contain "OSCP", returning data regardless of if median salary exists on levels[.]fyi:
+- Search 40 Google pages for jobs that contain "OSCP", returning data regardless of if median salary exists on levels[.]fyi:
 ```bash
 python salarysleuth.py -j "OSCP" -p 40 
 ```
 
-### Perform a single lookup of a company to determine median software engineer salary on leves[.]fyi:
+- Perform a single lookup of a company to determine median software engineer salary on leves[.]fyi:
 ```bash
 python salarysleuth.py -c "Salesforce"
 ```
@@ -54,12 +54,12 @@ GO111MODULE=on go install dw1.io/go-dork@latest
 python salarysleuth.py -h
 ```
 
-## TODOs
+## To Do
 
-- [x] Finish search engine implementation
-- [x] Fix some misc error handling bugs 
-- [x] Extend features to other pre-auth job search engines 
-- [x] Add in capability of retrieving median salary for non-SWE (i.e., software engineering manager)
+- [ ] Finish search engine implementation
+- [ ] Fix some misc error handling bugs 
+- [ ] Extend features to other pre-auth job search engines 
+- [ ] Add in capability of retrieving median salary for non-SWE (i.e., software engineering manager)
 
 ## Disclaimer
 This program is for educational and informational purposes only. The salary information provided is not guaranteed to be accurate or up-to-date.
