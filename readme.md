@@ -43,6 +43,7 @@ docker run -it salarysleuth salarysleuth.py --help
 * Python 3.6 or higher
 * Go
 * go-dork command line tool
+* tqdm
 * BeautifulSoup and requests Python packages (`pip install -r requirements.txt`)
 
 ## Installation
