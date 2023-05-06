@@ -22,7 +22,6 @@ def get_job_urls(query, num_pages, search_engine):
     # Define the go-dork command
     godork_cmd = f'go-dork -e {search_engine} -p {num_pages} -s -q "{query}"'
 
-
     # Run the go-dork command and capture the output
     output = subprocess.check_output(godork_cmd, shell=True, stderr=subprocess.DEVNULL)
 
@@ -32,7 +31,31 @@ def get_job_urls(query, num_pages, search_engine):
     # Extract the URLs from the output using regular expressions
     job_urls = re.findall(r'https?://\S+', output_str)
 
-    return job_urls
+    # Extract the job titles from the URLs using BeautifulSoup
+    job_data = []
+    for url in job_urls:
+        response = requests.get(url)
+        soup = BeautifulSoup(response.content, 'html.parser')
+        if 'lever.co' in url:
+            title_elem = soup.find('h2')
+            if title_elem:
+                title = title_elem.text.strip()
+            else:
+                title = ''
+        elif 'greenhouse.io' in url:
+            title_elem = soup.find('h1')
+            if title_elem:
+                title = title_elem.text.strip()
+            else:
+                title = ''
+        else:
+            title = ''
+        job_data.append({'title': title, 'url': url})
+
+    return job_data
+
+
+
 
 def get_salary(company_name, use_decimal=False):
     url = f"https://www.levels.fyi/companies/{company_name}/salaries/"
@@ -52,9 +75,9 @@ def get_salary(company_name, use_decimal=False):
 
     return None
 
-def get_company_name(url):
-
-    # Extract the company name from the URL
+def get_company_name(url_dict):
+    # Extract the company name from the URL dictionary
+    url = url_dict['url']
     match = re.search(r'\/\/[^/]+\/([^/]+)\/', url)
     if match:
         company_name = match.group(1)
@@ -62,6 +85,7 @@ def get_company_name(url):
         company_name = ''
 
     return company_name
+
 
 def print_banner(silence):
     if not silence:
@@ -107,8 +131,10 @@ def main():
         job_urls = get_job_urls(dork_query, args.pages, args.engine)
 
         salaries = []
-        for url in tqdm(job_urls, desc='Processing job URLs'):
-            company_name = get_company_name(url)
+        for url_dict in tqdm(job_urls, desc='Processing job URLs'):
+            url = url_dict['url']
+            job_title = url_dict['title']
+            company_name = get_company_name(url_dict)
             salary_dict = get_salary(company_name)
             if salary_dict is not None:
                 # Add URL to salary_dict
@@ -117,7 +143,8 @@ def main():
                 salaries.append(salary_dict)
             else:
                 # Add company name and None salary to salaries list
-                salaries.append({'company': company_name, 'salary': None, 'url': url})  
+                salaries.append({'company': company_name, 'salary': None, 'url': url, 'title': job_title})
+         
                 
         # do stuff if `-t` is passed 
         if args.table:
@@ -134,10 +161,14 @@ def main():
             for salary in salaries:
                 print("{:<25} {:<25} {:<50}".format("\033[35m" + salary['company'] + "\033[0m", salary['salary'], salary['url']))
                 
+                
         # do stuff if `-t` isn't passed 
         else:
-            for salary, url in zip(salaries, job_urls):
+            for url_dict, salary in zip(job_urls, salaries):
+                url = url_dict['url']
+                job_title = url_dict['title']
                 print(f"Job URL: {url}")
+                print(f"Job Title: {job_title}")
                 print(f"Company: \033[35m{salary['company']}\033[0m")
                 if salary['salary'] is None:
                     print("No salary information found for this company.")
@@ -145,6 +176,7 @@ def main():
                     median_salary = salary['salary']
                     print(f"Median Total Comp for Software Engineer: {colorize_salary(median_salary)}")
                 print("-" * 50)
+
 
     # do stuff if `-c` is passed 
     if args.company:
