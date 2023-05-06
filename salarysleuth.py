@@ -130,6 +130,7 @@ def main():
         dork_query = f"site:lever.co OR site:greenhouse.io {args.job}"
         job_urls = get_job_urls(dork_query, args.pages, args.engine)
 
+        # prep salaries / url dict
         salaries = []
         for url_dict in tqdm(job_urls, desc='Processing job URLs'):
             url = url_dict['url']
@@ -137,15 +138,16 @@ def main():
             company_name = get_company_name(url_dict)
             salary_dict = get_salary(company_name)
             if salary_dict is not None:
-                # Add URL to salary_dict
-                salary_dict['url'] = url  
+                # Add URL, job title, and colorized salary to salary_dict
+                salary_dict['url'] = url
+                salary_dict['title'] = job_title
                 salary_dict['salary'] = colorize_salary(salary_dict['salary']) if salary_dict['salary'] else 'No Data'
                 salaries.append(salary_dict)
             else:
-                # Add company name and None salary to salaries list
-                salaries.append({'company': company_name, 'salary': None, 'url': url, 'title': job_title})
-         
-                
+                # Add company name, job title, and None salary to salaries list
+                salaries.append({'company': company_name, 'title': job_title, 'salary': None, 'url': url})
+                        
+
         # do stuff if `-t` is passed 
         if args.table:
             # Remove entries with no salary data
@@ -155,13 +157,13 @@ def main():
             salaries = sorted(salaries, key=lambda x: int(re.sub(r'\x1b\[\d+m|\$', '', x['salary']).replace(',', '')) if isinstance(x['salary'], str) else x['salary'], reverse=True)
 
             # Print the table header
-            print("\033[1m{:<16} {:<16} {:<50}\033[0m".format("Company Name", "Median Salary", "Job URL"))
+            print("\033[1m{:<16} {:<16} {:<50} {:<50}\033[0m".format("Company Name", "Median Salary", "Job Title", "Job URL"))
 
             # Print each row in the table
             for salary in salaries:
-                print("{:<25} {:<25} {:<50}".format("\033[35m" + salary['company'] + "\033[0m", salary['salary'], salary['url']))
-                
-                
+                print("{:<25} {:<25} {:<50} {:<50}".format("\033[35m" + salary['company'] + "\033[0m", salary['salary'], salary['title'], salary['url']))
+
+
         # do stuff if `-t` isn't passed 
         else:
             for url_dict, salary in zip(job_urls, salaries):
