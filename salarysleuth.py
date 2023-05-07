@@ -18,7 +18,7 @@ $$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$
 """
 
 
-def get_job_urls(query, num_pages, search_engine):
+def get_job_urls(query, num_pages, search_engine, remote_only=False):
     # Define the go-dork command
     godork_cmd = f'go-dork -e {search_engine} -p {num_pages} -s -q "{query}"'
 
@@ -37,12 +37,19 @@ def get_job_urls(query, num_pages, search_engine):
         response = requests.get(url)
         soup = BeautifulSoup(response.content, 'html.parser')
         if 'lever.co' in url:
+            commitment_elem = soup.find('div', {'class': 'sort-by-commitment posting-category medium-category-label commitment'})
+            location_elem = soup.find('div', {'class': 'location'})
+            if remote_only and (not commitment_elem or 'remote' not in commitment_elem.text.lower()):
+                continue
             title_elem = soup.find('h2')
             if title_elem:
                 title = title_elem.text.strip()
             else:
                 title = ''
         elif 'greenhouse.io' in url:
+            location_elem = soup.find('div', {'class': 'location'})
+            if remote_only and (not location_elem or 'remote' not in location_elem.text.lower()):
+                continue
             title_elem = soup.find('h1')
             if title_elem:
                 title = title_elem.text.strip()
@@ -53,6 +60,7 @@ def get_job_urls(query, num_pages, search_engine):
         job_data.append({'title': title, 'url': url})
 
     return job_data
+
 
 
 
@@ -116,6 +124,7 @@ def main():
     parser.add_argument("-p", "--pages", type=int, default=50, help="Number of search result pages to scrape (default: 50)")
     parser.add_argument("-e", "--engine", type=str, default='google', help="Search engine to use (default: google). \n Options: Google, Shodan, Bing, Duck, Yahoo, Ask \n Note: Only tested with Google")
     parser.add_argument("-t", "--table", action="store_true", help="Re-organize output into a table in ascending order based on median salary")
+    parser.add_argument("-r", "--remote", action="store_true", help="Retrieve only remote jobs")
 
     args = parser.parse_args()
 
@@ -128,7 +137,8 @@ def main():
     # do stuff if `-j` is passed, regardless if `-t` is passed 
     if args.job:
         dork_query = f"site:lever.co OR site:greenhouse.io {args.job}"
-        job_urls = get_job_urls(dork_query, args.pages, args.engine)
+        job_urls = get_job_urls(dork_query, args.pages, args.engine, remote_only=args.remote)
+
 
         # prep salaries / url dict
         salaries = []

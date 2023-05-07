@@ -12,6 +12,7 @@ python salarysleuth.py [-j | --job job_characteristic] [-c | --company companyna
 * `-p pages`, `--pages pages` - Optional: Number of pages you'd like to dork (default: 50)
 * `-e engine`, `--engine engine` - Optional: The search engine you'd like to use (default: google) Options: Google, Shodan, Bing, Duck, Yahoo, Ask 
 * `-t`, `--table` - Optional: Re-organize output into a table in ascending order based on median salary (default: false)
+* `-r`, `--remote` - Optional: Retrieve only remote jobs
 * `-h`, `--help` - Optional. Displays the help menu.
 
 Note: Only tested with Google
@@ -57,6 +58,9 @@ python salarysleuth.py -h
 
 ## To Do
 
+- [x] Return job titles in search results
+- [x] Create flag to return only remote jobs 
+- [ ] Optimize speed and make searches take less time, particularly for higher page searches
 - [ ] Finish search engine implementation
 - [ ] Fix some misc error handling bugs 
 - [ ] Extend features to other pre-auth job search engines 
