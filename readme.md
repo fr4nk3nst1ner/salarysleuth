@@ -60,6 +60,7 @@ python salarysleuth.py -h
 
 - [x] Return job titles in search results
 - [x] Create flag to return only remote jobs 
+- [ ] Add jobs.smartrecruiters.com as a source for more job returns
 - [ ] Optimize speed and make searches take less time, particularly for higher page searches
 - [ ] Finish search engine implementation
 - [ ] Fix some misc error handling bugs 
