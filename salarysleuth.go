@@ -116,6 +116,25 @@ func filterRemoteJobs(jobUrls []SalaryInfo) []SalaryInfo {
 	return remoteJobUrls
 }
 
+func getJobTitle(url string) (string, error) {
+	resp, err := http.Get(url)
+	if err != nil {
+		return "", err
+	}
+	defer resp.Body.Close()
+
+	doc, err := goquery.NewDocumentFromReader(resp.Body)
+	if err != nil {
+		return "", err
+	}
+
+	titleElem := doc.Find("title").First()
+	if titleElem != nil {
+		return titleElem.Text(), nil
+	}
+	return "", errors.New("job title not found")
+}
+
 func getSalary(companyName string) (string, error) {
 	url := fmt.Sprintf("https://www.levels.fyi/companies/%s/salaries/", companyName)
 
@@ -227,8 +246,14 @@ func main() {
 				salary = "No Data"
 			}
 
+			jobTitle, err := getJobTitle(job.URL)
+			if err != nil {
+				jobTitle = job.URL
+			}
+
 			job.Salary = colorizeSalary(salary)
 			job.Company = companyName
+			job.Title = jobTitle
 
 			salaries = append(salaries, job)
 		}
@@ -239,10 +264,10 @@ func main() {
 				return extractSalaryValue(salaries[i].Salary) > extractSalaryValue(salaries[j].Salary)
 			})
 
-			fmt.Printf("\033[1m%-25s %-25s%-9s %-50s %-50s\033[0m\n", "Company Name", "Median Salary", "", "Job Title", "Job URL")
+			fmt.Printf("\033[1m%-25s %-34s %-50s %-50s\033[0m\n", "Company Name", "Median Salary", "Job Title", "Job URL")
 			for _, salary := range salaries {
 				cleanedSalary := cleanSalaryString(salary.Salary)
-				fmt.Printf("%-25s %-25s%-9s %-50s %-50s\n", colorizeText(salary.Company, "35"), cleanedSalary, "", salary.Title, salary.URL)
+				fmt.Printf("%-25s %-34s %-50s %-50s\n", colorizeText(salary.Company, "35"), cleanedSalary, salary.Title, salary.URL)
 			}
 		} else {
 			for _, salary := range salaries {
