@@ -1,26 +1,21 @@
-# Specify the base image
-FROM python:3.8-slim-buster
+# Use the official Go image as the base image
+FROM golang:1.20-buster
 
 # Set the working directory
 WORKDIR /app
 
-# Copy the application files to the working directory
-COPY salarysleuth.py requirements.txt ./
+# Copy the Go application files to the working directory
+COPY salarysleuth.go ./
 
-# Install the required packages
-RUN pip install --no-cache-dir -r requirements.txt
+# Install go-dork
+RUN go install dw1.io/go-dork@latest
 
-# install go
-RUN apt update ; apt install wget -y ; wget https://go.dev/dl/go1.20.2.linux-amd64.tar.gz -O /tmp/go.tar.gz ; tar -C /usr/local -xzf /tmp/go.tar.gz
-
-# install go dork
-RUN export PATH=$PATH:/usr/local/go/bin ;  echo "export PATH=$PATH:/usr/local/go/bin" >> ~/.bashrc ; source ~/.bashrc ; GO111MODULE=on go install dw1.io/go-dork@latest
-
-# set env path
-ENV PATH="${PATH}:/root/go/bin:/app"
-
-# Expose the port to run the application
+# Expose the port
 EXPOSE 80
 
-# Run the application
-CMD ["python", "/app/salarysleuth.py"]
+# Build the Go application
+RUN go build -o salarysleuth .
+
+# Set the entry point to run the Go application with arguments
+ENTRYPOINT ["./salarysleuth"]
+

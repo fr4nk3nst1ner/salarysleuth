@@ -1,4 +1,0 @@
-argparse
-bs4
-requests
-tqdm
