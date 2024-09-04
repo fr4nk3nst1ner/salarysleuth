@@ -41,7 +41,6 @@ docker run -it salarysleuth salarysleuth --help
 
 ## Requirements
 * Go
-* go-dork command line tool
 
 ## Installation
 ```bash
