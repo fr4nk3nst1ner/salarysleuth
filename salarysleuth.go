@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
+	"sync"
 
 	"github.com/PuerkitoBio/goquery"
 	"github.com/cheggaaa/pb/v3"
@@ -39,14 +40,24 @@ type Salary struct {
 	} `json:"baseSalary"`
 }
 
+const userAgent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36"
+
 func printBanner(silence bool) {
 	if !silence {
 		fmt.Println(banner)
 	}
 }
 
-func extractSalaryFromJobPage(jobURL string) (string, error) {
-	resp, err := http.Get(jobURL)
+func extractSalaryFromJobPage(jobURL string, debug bool) (string, error) {
+	// Create a new request with a custom user agent
+	req, err := http.NewRequest("GET", jobURL, nil)
+	if err != nil {
+		return "", err
+	}
+	req.Header.Set("User-Agent", userAgent)
+
+	client := &http.Client{}
+	resp, err := client.Do(req)
 	if err != nil {
 		return "", err
 	}
@@ -57,33 +68,53 @@ func extractSalaryFromJobPage(jobURL string) (string, error) {
 		return "", err
 	}
 
-	// Extract salary information from JSON-LD script tag
-	var salaryRange string
-	doc.Find("script[type='application/ld+json']").Each(func(i int, s *goquery.Selection) {
-		jsonContent := s.Text()
-
-		if strings.Contains(jsonContent, "baseSalary") {
-			var salaryData Salary
-			if err := json.Unmarshal([]byte(jsonContent), &salaryData); err != nil {
-				log.Println("Error parsing JSON:", err)
-				return
-			}
-
-			salaryRange = fmt.Sprintf("$%.2f - $%.2f", salaryData.BaseSalary.Value.MinValue, salaryData.BaseSalary.Value.MaxValue)
+	// Extract salary range directly from the div with class "salary compensation__salary"
+	var salaryText string
+	doc.Find("div.salary.compensation__salary").Each(func(i int, s *goquery.Selection) {
+		salaryText = strings.TrimSpace(s.Text())
+		if debug {
+			fmt.Printf("Extracted Salary Text: %s\n", salaryText)
 		}
 	})
 
-	if salaryRange == "" {
-		salaryRange = "Not specified"
+	// Fallback to extracting salary from JSON-LD script tag if not found in the direct salary div
+	if salaryText == "" {
+		doc.Find("script[type='application/ld+json']").Each(func(i int, s *goquery.Selection) {
+			jsonContent := s.Text()
+
+			if strings.Contains(jsonContent, "baseSalary") {
+				if debug {
+					fmt.Println("Extracted JSON-LD content:", jsonContent)
+				}
+				var salaryData Salary
+				if err := json.Unmarshal([]byte(jsonContent), &salaryData); err != nil {
+					log.Println("Error parsing JSON:", err)
+					return
+				}
+
+				salaryText = fmt.Sprintf("$%.2f - $%.2f", salaryData.BaseSalary.Value.MinValue, salaryData.BaseSalary.Value.MaxValue)
+			}
+		})
 	}
 
-	return salaryRange, nil
+	if salaryText == "" {
+		salaryText = "Not specified"
+	}
+
+	return salaryText, nil
 }
 
 func getSalaryFromLevelsFyi(companyName string) (string, error) {
 	url := fmt.Sprintf("https://www.levels.fyi/companies/%s/salaries/", companyName)
 
-	resp, err := http.Get(url)
+	req, err := http.NewRequest("GET", url, nil)
+	if err != nil {
+		return "", err
+	}
+	req.Header.Set("User-Agent", userAgent)
+
+	client := &http.Client{}
+	resp, err := client.Do(req)
 	if err != nil {
 		return "", err
 	}
@@ -103,7 +134,7 @@ func getSalaryFromLevelsFyi(companyName string) (string, error) {
 	return salaryElem, nil
 }
 
-func scrapeLinkedIn(description, city, titleKeyword string, remoteOnly bool, internshipsOnly bool) ([]SalaryInfo, error) {
+func scrapeLinkedIn(description, city, titleKeyword string, remoteOnly bool, internshipsOnly bool, pages int, debug bool) ([]SalaryInfo, error) {
 	// Use the title keyword to directly search LinkedIn if no description is provided
 	searchTerm := description
 	if description == "" {
@@ -113,81 +144,106 @@ func scrapeLinkedIn(description, city, titleKeyword string, remoteOnly bool, int
 	descriptionEncoded := url.QueryEscape(searchTerm)
 	cityEncoded := url.QueryEscape(city)
 
-	linkedInURL := fmt.Sprintf("https://www.linkedin.com/jobs/search?keywords=%s&location=%s&pageNum=0", descriptionEncoded, cityEncoded)
-
-	resp, err := http.Get(linkedInURL)
-	if err != nil {
-		return nil, err
-	}
-	defer resp.Body.Close()
-
-	doc, err := goquery.NewDocumentFromReader(resp.Body)
-	if err != nil {
-		return nil, err
-	}
-
 	var jobs []SalaryInfo
-	jobCount := doc.Find("div.job-search-card").Length()
-	bar := pb.StartNew(jobCount)
+	var wg sync.WaitGroup
+	bar := pb.StartNew(pages)
 
-	doc.Find("div.job-search-card").Each(func(i int, s *goquery.Selection) {
-		title := s.Find("h3.base-search-card__title").Text()
-		company := s.Find("a.hidden-nested-link").Text()
-		location := s.Find("span.job-search-card__location").Text()
-		link, exists := s.Find("a.base-card__full-link").Attr("href")
-
-		if exists {
-			// Filter out internships unless the --internships flag is passed
-			isInternship := strings.Contains(strings.ToLower(title), "intern")
-			if !internshipsOnly && isInternship {
-				bar.Increment()
-				return
-			}
-
-			// Check if title matches the titleKeyword, if provided
-			if titleKeyword != "" && !strings.Contains(strings.ToLower(title), strings.ToLower(titleKeyword)) {
-				bar.Increment()
-				return
-			}
-
-			// Filter jobs based on the location and remote-only flag if applicable
-			isRemote := strings.Contains(strings.ToLower(location), "remote") || strings.Contains(strings.ToLower(location), "united states")
-			if remoteOnly && !isRemote {
-				bar.Increment()
-				return
-			}
-
-			job := SalaryInfo{
-				Title:    strings.TrimSpace(title),
-				Company:  strings.TrimSpace(company),
-				Location: strings.TrimSpace(location),
-				URL:      strings.TrimSpace(link),
-			}
-
-			// Extract salary from LinkedIn  
-			salary, err := extractSalaryFromJobPage(job.URL)
-			if err == nil && salary != "" {
-				job.SalaryRange = salary
-			} else {
-				job.SalaryRange = "Not specified"
-			}
-
-			// Cross-reference with levels.fyi
-			levelSalary, err := getSalaryFromLevelsFyi(strings.ToLower(strings.ReplaceAll(job.Company, " ", "-")))
-			if err == nil && levelSalary != "" {
-				job.LevelSalary = levelSalary
-			} else {
-				job.LevelSalary = "No Data"
-			}
-
-			jobs = append(jobs, job)
+	for pageNum := 0; pageNum < pages; pageNum++ {
+		// Construct the LinkedIn URL, adding "f_WT=2" if remoteOnly is true
+		linkedInURL := fmt.Sprintf("https://www.linkedin.com/jobs/search?keywords=%s&location=%s&pageNum=%d", descriptionEncoded, cityEncoded, pageNum)
+		if remoteOnly {
+			linkedInURL += "&f_WT=2"
 		}
-		bar.Increment()
-	})
 
+		// Print the generated LinkedIn URL for debugging purposes
+		if debug {
+			fmt.Printf("Searching LinkedIn with URL: %s\n", linkedInURL)
+		}
+
+		req, err := http.NewRequest("GET", linkedInURL, nil)
+		if err != nil {
+			return nil, err
+		}
+		req.Header.Set("User-Agent", userAgent)
+
+		client := &http.Client{}
+		resp, err := client.Do(req)
+		if err != nil {
+			return nil, err
+		}
+		defer resp.Body.Close()
+
+		doc, err := goquery.NewDocumentFromReader(resp.Body)
+		if err != nil {
+			return nil, err
+		}
+
+		doc.Find("div.job-search-card").Each(func(i int, s *goquery.Selection) {
+			title := s.Find("h3.base-search-card__title").Text()
+			company := s.Find("a.hidden-nested-link").Text()
+			location := s.Find("span.job-search-card__location").Text()
+			link, exists := s.Find("a.base-card__full-link").Attr("href")
+
+			if exists {
+				// Filter out internships unless the --internships flag is passed
+				isInternship := strings.Contains(strings.ToLower(title), "intern")
+				if !internshipsOnly && isInternship {
+					bar.Increment()
+					return
+				}
+
+				// Check if title matches the titleKeyword, if provided
+				if titleKeyword != "" && !strings.Contains(strings.ToLower(title), strings.ToLower(titleKeyword)) {
+					bar.Increment()
+					return
+				}
+
+				// Filter jobs based on the location and remote-only flag if applicable
+				isRemote := strings.Contains(strings.ToLower(location), "remote") || strings.Contains(strings.ToLower(location), "united states")
+				if remoteOnly && !isRemote {
+					bar.Increment()
+					return
+				}
+
+				job := SalaryInfo{
+					Title:    strings.TrimSpace(title),
+					Company:  strings.TrimSpace(company),
+					Location: strings.TrimSpace(location),
+					URL:      strings.TrimSpace(link),
+				}
+
+				jobs = append(jobs, job)
+				wg.Add(1)
+				go processJob(&jobs[len(jobs)-1], &wg, bar, debug)
+			}
+		})
+	}
+
+	wg.Wait()
 	bar.Finish()
 
 	return jobs, nil
+}
+
+func processJob(salaryInfo *SalaryInfo, wg *sync.WaitGroup, bar *pb.ProgressBar, debug bool) {
+	defer wg.Done()
+	defer bar.Increment()
+
+	// Extract salary from LinkedIn
+	salary, err := extractSalaryFromJobPage(salaryInfo.URL, debug)
+	if err == nil && salary != "" {
+		salaryInfo.SalaryRange = salary
+	} else {
+		salaryInfo.SalaryRange = "Not specified"
+	}
+
+	// Cross-reference with levels.fyi
+	levelSalary, err := getSalaryFromLevelsFyi(strings.ToLower(strings.ReplaceAll(salaryInfo.Company, " ", "-")))
+	if err == nil && levelSalary != "" {
+		salaryInfo.LevelSalary = levelSalary
+	} else {
+		salaryInfo.LevelSalary = "No Data"
+	}
 }
 
 func main() {
@@ -197,6 +253,8 @@ func main() {
 	remoteOnly := flag.Bool("r", false, "Include only remote jobs in the search results")
 	internshipsOnly := flag.Bool("internships", false, "Include only internships in the search results")
 	silence := flag.Bool("s", false, "Silence the banner")
+	pages := flag.Int("p", 5, "Number of pages to search (default: 5)")
+	debug := flag.Bool("debug", false, "Enable debug output")
 
 	flag.Parse()
 
@@ -208,7 +266,7 @@ func main() {
 	printBanner(*silence)
 
 	// Pull the job listings based on the provided arguments
-	jobs, err := scrapeLinkedIn(*description, *city, *titleKeyword, *remoteOnly, *internshipsOnly)
+	jobs, err := scrapeLinkedIn(*description, *city, *titleKeyword, *remoteOnly, *internshipsOnly, *pages, *debug)
 	if err != nil {
 		fmt.Println("Error scraping LinkedIn:", err)
 		return
@@ -237,4 +295,7 @@ func main() {
 		fmt.Printf("Job URL: %s\n", job.URL)
 		fmt.Println(strings.Repeat("-", 50))
 	}
+
+	// Print the total number of jobs found
+	fmt.Printf("Total jobs found: %d\n", len(jobs))
 }
