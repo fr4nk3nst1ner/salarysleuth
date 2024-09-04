@@ -1,2 +1,4 @@
 venv/
 salarysleuth
+go.mod
+go.sum
