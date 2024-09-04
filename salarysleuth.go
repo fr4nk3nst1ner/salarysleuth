@@ -46,18 +46,18 @@ func printBanner(silence bool) {
 }
 
 func extractSalaryFromJobPage(jobURL string) (string, error) {
-	res, err := http.Get(jobURL)
+	resp, err := http.Get(jobURL)
 	if err != nil {
 		return "", err
 	}
-	defer res.Body.Close()
+	defer resp.Body.Close()
 
-	doc, err := goquery.NewDocumentFromReader(res.Body)
+	doc, err := goquery.NewDocumentFromReader(resp.Body)
 	if err != nil {
 		return "", err
 	}
 
-	// extract salary information from `JSON-LD`` script tag
+	// Extract salary information from JSON-LD script tag
 	var salaryRange string
 	doc.Find("script[type='application/ld+json']").Each(func(i int, s *goquery.Selection) {
 		jsonContent := s.Text()
@@ -103,8 +103,14 @@ func getSalaryFromLevelsFyi(companyName string) (string, error) {
 	return salaryElem, nil
 }
 
-func scrapeLinkedIn(description, city, keyword string, remoteOnly bool, internshipsOnly bool) ([]SalaryInfo, error) {
-	descriptionEncoded := url.QueryEscape(description)
+func scrapeLinkedIn(description, city, titleKeyword string, remoteOnly bool, internshipsOnly bool) ([]SalaryInfo, error) {
+	// Use the title keyword to directly search LinkedIn if no description is provided
+	searchTerm := description
+	if description == "" {
+		searchTerm = titleKeyword
+	}
+
+	descriptionEncoded := url.QueryEscape(searchTerm)
 	cityEncoded := url.QueryEscape(city)
 
 	linkedInURL := fmt.Sprintf("https://www.linkedin.com/jobs/search?keywords=%s&location=%s&pageNum=0", descriptionEncoded, cityEncoded)
@@ -131,47 +137,50 @@ func scrapeLinkedIn(description, city, keyword string, remoteOnly bool, internsh
 		link, exists := s.Find("a.base-card__full-link").Attr("href")
 
 		if exists {
-			// Apply internship filter logic
-			if internshipsOnly {
-				if !strings.Contains(strings.ToLower(title), "intern") {
-					bar.Increment()
-					return
-				}
-			} else {
-				if strings.Contains(strings.ToLower(title), "intern") {
-					bar.Increment()
-					return
-				}
+			// Filter out internships unless the --internships flag is passed
+			isInternship := strings.Contains(strings.ToLower(title), "intern")
+			if !internshipsOnly && isInternship {
+				bar.Increment()
+				return
 			}
 
-			// filter jobs based on the location and remote-only flag if applicable
+			// Check if title matches the titleKeyword, if provided
+			if titleKeyword != "" && !strings.Contains(strings.ToLower(title), strings.ToLower(titleKeyword)) {
+				bar.Increment()
+				return
+			}
+
+			// Filter jobs based on the location and remote-only flag if applicable
 			isRemote := strings.Contains(strings.ToLower(location), "remote") || strings.Contains(strings.ToLower(location), "united states")
-			if (!remoteOnly || isRemote) && (keyword == "" || strings.Contains(strings.ToLower(title), strings.ToLower(keyword))) {
-				job := SalaryInfo{
-					Title:    strings.TrimSpace(title),
-					Company:  strings.TrimSpace(company),
-					Location: strings.TrimSpace(location),
-					URL:      strings.TrimSpace(link),
-				}
-
-				// extract salary from LinkedIn  
-				salary, err := extractSalaryFromJobPage(job.URL)
-				if err == nil && salary != "" {
-					job.SalaryRange = salary
-				} else {
-					job.SalaryRange = "Not specified"
-				}
-
-				// cross-reference with levels.fyi
-				levelSalary, err := getSalaryFromLevelsFyi(strings.ToLower(strings.ReplaceAll(job.Company, " ", "-")))
-				if err == nil && levelSalary != "" {
-					job.LevelSalary = levelSalary
-				} else {
-					job.LevelSalary = "No Data"
-				}
-
-				jobs = append(jobs, job)
+			if remoteOnly && !isRemote {
+				bar.Increment()
+				return
 			}
+
+			job := SalaryInfo{
+				Title:    strings.TrimSpace(title),
+				Company:  strings.TrimSpace(company),
+				Location: strings.TrimSpace(location),
+				URL:      strings.TrimSpace(link),
+			}
+
+			// Extract salary from LinkedIn  
+			salary, err := extractSalaryFromJobPage(job.URL)
+			if err == nil && salary != "" {
+				job.SalaryRange = salary
+			} else {
+				job.SalaryRange = "Not specified"
+			}
+
+			// Cross-reference with levels.fyi
+			levelSalary, err := getSalaryFromLevelsFyi(strings.ToLower(strings.ReplaceAll(job.Company, " ", "-")))
+			if err == nil && levelSalary != "" {
+				job.LevelSalary = levelSalary
+			} else {
+				job.LevelSalary = "No Data"
+			}
+
+			jobs = append(jobs, job)
 		}
 		bar.Increment()
 	})
@@ -182,24 +191,24 @@ func scrapeLinkedIn(description, city, keyword string, remoteOnly bool, internsh
 }
 
 func main() {
-	description := flag.String("d", "", "Job characteristic or keyword to search for on LinkedIn")
+	description := flag.String("d", "", "Job characteristic or keyword to search for in the job description on LinkedIn")
 	city := flag.String("l", "United States", "City name to search for jobs on LinkedIn, or 'United States' for nationwide search")
-	keyword := flag.String("t", "", "Keyword to search for in job titles")
+	titleKeyword := flag.String("t", "", "Keyword to search for in job titles")
 	remoteOnly := flag.Bool("r", false, "Include only remote jobs in the search results")
 	internshipsOnly := flag.Bool("internships", false, "Include only internships in the search results")
 	silence := flag.Bool("s", false, "Silence the banner")
 
 	flag.Parse()
 
-	if *description == "" && *keyword == "" {
-		fmt.Println("Please provide a job description or keyword to search for. Use --help for usage details.")
+	if *description == "" && *titleKeyword == "" {
+		fmt.Println("Please provide a job title keyword to search for with -t, or a job description keyword with -d. Use --help for usage details.")
 		return
 	}
 
 	printBanner(*silence)
 
-	// pull the job listings based on the provided arguments
-	jobs, err := scrapeLinkedIn(*description, *city, *keyword, *remoteOnly, *internshipsOnly)
+	// Pull the job listings based on the provided arguments
+	jobs, err := scrapeLinkedIn(*description, *city, *titleKeyword, *remoteOnly, *internshipsOnly)
 	if err != nil {
 		fmt.Println("Error scraping LinkedIn:", err)
 		return
@@ -210,7 +219,7 @@ func main() {
 		return
 	}
 
-	// return the job listings
+	// Return the job listings
 	for _, job := range jobs {
 		fmt.Printf("Company: \033[35m%s\033[0m\n", job.Company)
 		fmt.Printf("Job Title: \033[35m%s\033[0m\n", job.Title)
