@@ -5,17 +5,14 @@ FROM golang:1.20-buster
 WORKDIR /app
 
 # Copy the Go application files to the working directory
-COPY salarysleuth.go ./
+COPY . .
 
-# Install go-dork
-RUN go install dw1.io/go-dork@latest
-
-# Expose the port
-EXPOSE 80
+# Download necessary Go modules (if using go.mod and go.sum)
+RUN go mod tidy
+RUN go mod download
 
 # Build the Go application
 RUN go build -o salarysleuth .
 
 # Set the entry point to run the Go application with arguments
 ENTRYPOINT ["./salarysleuth"]
-
