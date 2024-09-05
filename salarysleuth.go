@@ -12,13 +12,18 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"os"
 
+	"math/rand"
+	"time"
+
+	"github.com/pterm/pterm"
 	"github.com/PuerkitoBio/goquery"
 	"github.com/cheggaaa/pb/v3"
     "github.com/dustin/go-humanize"
 )
 
-const banner = `
+const bannerText = `
 ▄▄███▄▄· █████╗ ██╗      █████╗ ██████╗ ██╗   ██╗    ▄▄███▄▄·██╗     ███████╗██╗   ██╗████████╗██╗  ██╗
 ██╔════╝██╔══██╗██║     ██╔══██╗██╔══██╗╚██╗ ██╔╝    ██╔════╝██║     ██╔════╝██║   ██║╚══██╔══╝██║  ██║
 ███████╗███████║██║     ███████║██████╔╝ ╚████╔╝     ███████╗██║     █████╗  ██║   ██║   ██║   ███████║
@@ -27,6 +32,32 @@ const banner = `
 ╚═▀▀▀══╝╚═╝  ╚═╝╚══════╝╚═╝  ╚═╝╚═╝  ╚═╝   ╚═╝       ╚═▀▀▀══╝╚══════╝╚══════╝ ╚═════╝    ╚═╝   ╚═╝  ╚═╝
  @fr4nk3nst1ner                                                                                                        
 `
+
+func colorizeText(text string) string {
+	source := rand.NewSource(time.Now().UnixNano())
+	random := rand.New(source)
+
+	startColor := pterm.NewRGB(uint8(random.Intn(256)), uint8(random.Intn(256)), uint8(random.Intn(256)))
+	firstPoint := pterm.NewRGB(uint8(random.Intn(256)), uint8(random.Intn(256)), uint8(random.Intn(256)))
+
+	strs := strings.Split(text, "")
+
+	var coloredText string
+	for i := 0; i < len(text); i++ {
+		if i < len(strs) {
+			coloredText += startColor.Fade(0, float32(len(text)), float32(i%(len(text)/2)), firstPoint).Sprint(strs[i])
+		}
+	}
+
+	return coloredText
+}
+
+func printBanner(silence bool) {
+	if !silence {
+		coloredBanner := colorizeText(bannerText)
+		fmt.Println(coloredBanner)
+	}
+}
 
 type SalaryInfo struct {
 	Company     string
@@ -47,12 +78,6 @@ type Salary struct {
 }
 
 const userAgent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36"
-
-func printBanner(silence bool) {
-	if !silence {
-		fmt.Println(banner)
-	}
-}
 
 func extractSalaryFromJobPage(jobURL string, debug bool) (string, error) {
 	// Create a new request with a custom user agent
@@ -307,14 +332,24 @@ func main() {
 	debug := flag.Bool("debug", false, "Enable debug output")
 	table := flag.Bool("table", false, "Re-organize output into a table in ascending order based on median salary")
 
+	flag.Usage = func() {
+		printBanner(*silence)
+		fmt.Println("Usage:")
+		flag.PrintDefaults()
+	}
+
 	flag.Parse()
 
 	if *description == "" && *titleKeyword == "" {
-		fmt.Println("Please provide a job title keyword to search for with -t, or a job description keyword with -d. Use --help for usage details.")
-		return
+		//printBanner(*silence)
+		flag.Usage()
+		fmt.Println("\nPlease provide a job title keyword to search for with -t, or a job description keyword with -d.")
+		os.Exit(0) 
 	}
 
-	printBanner(*silence)
+	if !*silence {
+		printBanner(*silence)
+	}
 
 	// Pull the job listings based on the provided arguments
 	jobs, err := scrapeLinkedIn(*description, *city, *titleKeyword, *remoteOnly, *internshipsOnly, *pages, *debug)
