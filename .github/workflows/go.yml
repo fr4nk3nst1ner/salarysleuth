@@ -91,7 +91,7 @@ jobs:
         PATCH=$(echo $VERSION | cut -d. -f3)
         
         # Increment the patch version
-        NEXT_VERSION="v${MAJOR}.${MINOR}.${PATCH}"
+        NEXT_VERSION="${MAJOR}.${MINOR}.${PATCH}"
         
         while git rev-parse "v${NEXT_VERSION}" >/dev/null 2>&1; do
             PATCH=$((PATCH+1))
@@ -115,7 +115,7 @@ jobs:
       uses: softprops/action-gh-release@v1
       with:
         tag_name: ${{ env.NEXT_VERSION }}
-        release_name: "Release ${{ env.NEXT_VERSION }}"
+        release_name: "Release ${{ env.NEXT_VERSION#v }}"
         files: ./release-assets/*
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
