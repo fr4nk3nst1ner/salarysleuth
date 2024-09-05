@@ -63,18 +63,19 @@ jobs:
       run: |
         CURRENT_VERSION=${{ env.CURRENT_VERSION }}
         echo "Current Version: ${CURRENT_VERSION}"
-        # Remove the 'v' prefix and split the version number into its components
+        
         VERSION=${CURRENT_VERSION#v}
         MAJOR=$(echo $VERSION | cut -d. -f1)
         MINOR=$(echo $VERSION | cut -d. -f2)
         PATCH=$(echo $VERSION | cut -d. -f3)
         
-        # Increment the patch version (you can change this logic to increment minor/major as needed)
-        PATCH=$((PATCH+1))
-
-        # Form the next version
+        while git rev-parse "v${MAJOR}.${MINOR}.${PATCH}" >/dev/null 2>&1; do
+            PATCH=$((PATCH+1))
+        done
+        
         NEXT_VERSION="v${MAJOR}.${MINOR}.${PATCH}"
         echo "NEXT_VERSION=${NEXT_VERSION}" >> $GITHUB_ENV
+        echo "Next Version: ${NEXT_VERSION}"
 
     - name: Create New Tag
       env:
