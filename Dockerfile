@@ -1,5 +1,5 @@
 # Use the official Go image as the base image
-FROM golang:1.20-buster
+FROM golang:1.21
 
 # Set the working directory
 WORKDIR /app
@@ -16,3 +16,4 @@ RUN go build -o salarysleuth .
 
 # Set the entry point to run the Go application with arguments
 ENTRYPOINT ["./salarysleuth"]
+
