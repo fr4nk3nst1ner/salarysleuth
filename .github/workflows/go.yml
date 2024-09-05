@@ -91,11 +91,14 @@ jobs:
         PATCH=$(echo $VERSION | cut -d. -f3)
         
         # Increment the patch version
-        while git rev-parse "v${MAJOR}.${MINOR}.${PATCH}" >/dev/null 2>&1; do
+        NEXT_VERSION="v${MAJOR}.${MINOR}.${PATCH}"
+        
+        while git rev-parse "v${NEXT_VERSION}" >/dev/null 2>&1; do
             PATCH=$((PATCH+1))
+            NEXT_VERSION="${MAJOR}.${MINOR}.${PATCH}"
         done
         
-        NEXT_VERSION="v${MAJOR}.${MINOR}.${PATCH}"
+        NEXT_VERSION="v${NEXT_VERSION}"
         echo "NEXT_VERSION=${NEXT_VERSION}" >> $GITHUB_ENV
         echo "Next Version: ${NEXT_VERSION}"
 
