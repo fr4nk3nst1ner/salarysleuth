@@ -17,3 +17,5 @@ RUN go build -o salarysleuth .
 # Set the entry point to run the Go application with arguments
 ENTRYPOINT ["./salarysleuth"]
 
+# Default command (can be overridden)
+CMD ["-h"]
