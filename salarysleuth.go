@@ -7,19 +7,25 @@ import (
 	"log"
 	"net/http"
 	"net/url"
+	"regexp"
+	"sort"
+	"strconv"
 	"strings"
 	"sync"
 
 	"github.com/PuerkitoBio/goquery"
 	"github.com/cheggaaa/pb/v3"
+    "github.com/dustin/go-humanize"
 )
 
 const banner = `
-$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$
-$$$                                                      $$$
-$$$                     $alary $leuth                    $$$
-$$$                     @fr4nk3nst1ner                   $$$
-$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$
+▄▄███▄▄· █████╗ ██╗      █████╗ ██████╗ ██╗   ██╗    ▄▄███▄▄·██╗     ███████╗██╗   ██╗████████╗██╗  ██╗
+██╔════╝██╔══██╗██║     ██╔══██╗██╔══██╗╚██╗ ██╔╝    ██╔════╝██║     ██╔════╝██║   ██║╚══██╔══╝██║  ██║
+███████╗███████║██║     ███████║██████╔╝ ╚████╔╝     ███████╗██║     █████╗  ██║   ██║   ██║   ███████║
+╚════██║██╔══██║██║     ██╔══██║██╔══██╗  ╚██╔╝      ╚════██║██║     ██╔══╝  ██║   ██║   ██║   ██╔══██║
+███████║██║  ██║███████╗██║  ██║██║  ██║   ██║       ███████║███████╗███████╗╚██████╔╝   ██║   ██║  ██║
+╚═▀▀▀══╝╚═╝  ╚═╝╚══════╝╚═╝  ╚═╝╚═╝  ╚═╝   ╚═╝       ╚═▀▀▀══╝╚══════╝╚══════╝ ╚═════╝    ╚═╝   ╚═╝  ╚═╝
+ @fr4nk3nst1ner                                                                                                        
 `
 
 type SalaryInfo struct {
@@ -244,7 +250,51 @@ func processJob(salaryInfo *SalaryInfo, wg *sync.WaitGroup, bar *pb.ProgressBar,
 	} else {
 		salaryInfo.LevelSalary = "No Data"
 	}
+
+	// Debug: Print the salary before colorizing
+	//fmt.Printf("Debug: Raw Level Salary before colorizing: %s\n", salaryInfo.LevelSalary)
+
+	// Colorize salary
+	//coloredSalary := colorizeSalary(salaryInfo.LevelSalary)
+	//fmt.Printf("Debug: Colored Salary: %s\n", coloredSalary)
 }
+
+
+func extractNumericValue(salaryStr string) int {
+	// Remove non-numeric characters and convert to integer
+	re := regexp.MustCompile("[^0-9]")
+	salaryStr = re.ReplaceAllString(salaryStr, "")
+	salary, _ := strconv.Atoi(salaryStr)
+	return salary
+}
+
+func colorizeSalary(salary string) string {
+    // Remove all non-numeric characters from the salary string
+    re := regexp.MustCompile("[^0-9]")
+    salaryStr := re.ReplaceAllString(salary, "")
+
+    // Convert the cleaned string to an integer
+    salaryInt, err := strconv.Atoi(salaryStr)
+    if err != nil {
+        return salary // Return the original string if conversion fails
+    }
+
+    // Format the salary with commas
+    salaryFormatted := fmt.Sprintf("$%s", humanize.Comma(int64(salaryInt)))
+
+    // Apply color based on the salary value
+    switch {
+    case salaryInt >= 300000:
+        return fmt.Sprintf("\033[32m%s\033[0m", salaryFormatted) // Bright Green
+    case salaryInt >= 200000:
+        return fmt.Sprintf("\033[92m%s\033[0m", salaryFormatted) // Green
+    case salaryInt >= 100000:
+        return fmt.Sprintf("\033[93m%s\033[0m", salaryFormatted) // Yellow
+    default:
+        return fmt.Sprintf("\033[31m%s\033[0m", salaryFormatted) // Red
+    }
+}
+
 
 func main() {
 	description := flag.String("d", "", "Job characteristic or keyword to search for in the job description on LinkedIn")
@@ -255,6 +305,7 @@ func main() {
 	silence := flag.Bool("s", false, "Silence the banner")
 	pages := flag.Int("p", 5, "Number of pages to search (default: 5)")
 	debug := flag.Bool("debug", false, "Enable debug output")
+	table := flag.Bool("table", false, "Re-organize output into a table in ascending order based on median salary")
 
 	flag.Parse()
 
@@ -277,23 +328,50 @@ func main() {
 		return
 	}
 
-	// Return the job listings
-	for _, job := range jobs {
-		fmt.Printf("Company: \033[35m%s\033[0m\n", job.Company)
-		fmt.Printf("Job Title: \033[35m%s\033[0m\n", job.Title)
-		fmt.Printf("Location: \033[35m%s\033[0m\n", job.Location)
-		if job.SalaryRange != "" {
-			fmt.Printf("Salary Range: \033[32m%s\033[0m\n", job.SalaryRange)
-		} else {
-			fmt.Println("Salary Range: Not specified")
+	if *table {
+		// Filter jobs with Levels.fyi salary data only
+		filteredJobs := []SalaryInfo{}
+		for _, job := range jobs {
+			if job.LevelSalary != "" && job.LevelSalary != "No Data" {
+				filteredJobs = append(filteredJobs, job)
+			}
 		}
-		if job.LevelSalary != "" && job.LevelSalary != "No Data" {
-			fmt.Printf("Levels.fyi Salary: \033[32m%s\033[0m\n", job.LevelSalary)
-		} else {
-			fmt.Println("Levels.fyi Salary: No Data")
+
+		// Sort jobs by salary (assuming salary is formatted as "$200,000 - $300,000")
+		sort.SliceStable(filteredJobs, func(i, j int) bool {
+			// Extract numeric value for comparison
+			salaryI := extractNumericValue(filteredJobs[i].LevelSalary)
+			salaryJ := extractNumericValue(filteredJobs[j].LevelSalary)
+			return salaryI > salaryJ
+		})
+
+		// Print the table header
+		fmt.Printf("\033[1m%-25s %-25s %-50s %-50s\033[0m\n", "Company Name", "Median Salary", "Job Title", "Job URL")
+		for _, job := range filteredJobs {
+			coloredSalary := colorizeSalary(job.LevelSalary)
+			fmt.Printf("\033[35m%-25s\033[0m %-25s %-50s %-50s\n",
+				job.Company, coloredSalary, job.Title, job.URL)
 		}
-		fmt.Printf("Job URL: %s\n", job.URL)
-		fmt.Println(strings.Repeat("-", 50))
+	} else {
+		// Default output logic
+		for _, job := range jobs {
+			fmt.Printf("Company: \033[35m%s\033[0m\n", job.Company)
+			fmt.Printf("Job Title: \033[35m%s\033[0m\n", job.Title)
+			fmt.Printf("Location: \033[35m%s\033[0m\n", job.Location)
+			if job.SalaryRange != "" {
+				fmt.Printf("Salary Range: \033[32m%s\033[0m\n", job.SalaryRange)
+			} else {
+				fmt.Println("Salary Range: Not specified")
+			}
+			if job.LevelSalary != "" && job.LevelSalary != "No Data" {
+				coloredSalary := colorizeSalary(job.LevelSalary)
+				fmt.Printf("Levels.fyi Salary: %s\n", coloredSalary)
+			} else {
+				fmt.Println("Levels.fyi Salary: No Data")
+			}
+			fmt.Printf("Job URL: %s\n", job.URL)
+			fmt.Println(strings.Repeat("-", 50))
+		}
 	}
 
 	// Print the total number of jobs found
