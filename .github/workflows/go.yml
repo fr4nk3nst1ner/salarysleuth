@@ -74,32 +74,29 @@ jobs:
     - name: List downloaded files
       run: ls -al ./release-assets/
 
-    - name: Get Current Version Tag
-      id: current_version
-      run: |
-        CURRENT_VERSION=$(git describe --tags --abbrev=0 || echo "v0.0.0")
-        echo "CURRENT_VERSION=${CURRENT_VERSION}" >> $GITHUB_ENV
-
     - name: Determine Next Version
       id: next_version
       run: |
-        CURRENT_VERSION=${{ env.CURRENT_VERSION }}
+        # Get the latest tag from the repository
+        CURRENT_VERSION=$(git describe --tags --abbrev=0 || echo "v0.0.0")
         echo "Current Version: ${CURRENT_VERSION}"
+
+        # Strip the 'v' prefix and split the version number into its components
         VERSION=${CURRENT_VERSION#v}
         MAJOR=$(echo $VERSION | cut -d. -f1)
         MINOR=$(echo $VERSION | cut -d. -f2)
         PATCH=$(echo $VERSION | cut -d. -f3)
-        
-        # Start with the next patch version
+
+        # Increment the patch version
         PATCH=$((PATCH+1))
         NEXT_VERSION="v${MAJOR}.${MINOR}.${PATCH}"
-        
+
         # Ensure the new tag doesn't exist
-        while git rev-parse "$NEXT_VERSION" >/dev/null 2>&1; do
+        while git rev-parse --verify --quiet "$NEXT_VERSION" >/dev/null; do
             PATCH=$((PATCH+1))
             NEXT_VERSION="v${MAJOR}.${MINOR}.${PATCH}"
         done
-        
+
         echo "NEXT_VERSION=${NEXT_VERSION}" >> $GITHUB_ENV
         echo "Next Version: ${NEXT_VERSION}"
 
