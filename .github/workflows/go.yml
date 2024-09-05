@@ -90,14 +90,13 @@ jobs:
         MINOR=$(echo $VERSION | cut -d. -f2)
         PATCH=$(echo $VERSION | cut -d. -f3)
         
-        NEXT_VERSION="${MAJOR}.${MINOR}.${PATCH}"
+        NEXT_VERSION="v${MAJOR}.${MINOR}.${PATCH}"
         
         while git rev-parse "${NEXT_VERSION}" >/dev/null 2>&1; do
             PATCH=$((PATCH+1))
-            NEXT_VERSION="${MAJOR}.${MINOR}.${PATCH}"
+            NEXT_VERSION="v${MAJOR}.${MINOR}.${PATCH}"
         done
         
-        NEXT_VERSION="${NEXT_VERSION}"
         echo "NEXT_VERSION=${NEXT_VERSION}" >> $GITHUB_ENV
         echo "Next Version: ${NEXT_VERSION}"
 
