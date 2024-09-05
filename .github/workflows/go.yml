@@ -47,10 +47,9 @@ jobs:
     steps:
     - uses: actions/checkout@v4
 
-    - name: Download binaries
+    - name: Download all binaries
       uses: actions/download-artifact@v3
       with:
-        name: salarysleuth-linux-amd64
         path: ./release-assets/
 
     - name: Get Current Version Tag
