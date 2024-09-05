@@ -1,17 +1,23 @@
-# This workflow will build a golang project
-# For more information see: https://docs.github.com/en/actions/automating-builds-and-tests/building-and-testing-go
-
-name: Go
+name: Go Release
 
 on:
   push:
-    branches: [ "main" ]
+    branches:
+      - "main"
   pull_request:
-    branches: [ "main" ]
+    branches:
+      - "main"
 
 jobs:
   build:
     runs-on: ubuntu-latest
+
+    strategy:
+      matrix:
+        goos: [linux, linux, darwin, windows]
+        goarch: [amd64, arm64, arm64, amd64]
+        # Define file extensions based on OS
+        ext: [ "", "", "", ".exe" ]
 
     steps:
     - uses: actions/checkout@v4
@@ -19,15 +25,38 @@ jobs:
     - name: Set up Go
       uses: actions/setup-go@v4
       with:
-        go-version: '1.20'
+        go-version: '1.21'
 
     - name: Initialize Go module
       run: |
         go mod tidy
 
-    - name: Build
-      run: go build -v ./...
+    - name: Build binary
+      run: |
+        CGO_ENABLED=0 GOOS=${{ matrix.goos }} GOARCH=${{ matrix.goarch }} go build -o salarysleuth-${{ matrix.goos }}-${{ matrix.goarch }}${{ matrix.ext }}
 
-    - name: Test
-      run: go test -v ./...
+    - name: Archive binary
+      uses: actions/upload-artifact@v3
+      with:
+        name: salarysleuth-${{ matrix.goos }}-${{ matrix.goarch }}${{ matrix.ext }}
+        path: salarysleuth-${{ matrix.goos }}-${{ matrix.goarch }}${{ matrix.ext }}
 
+  release:
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Download binaries
+      uses: actions/download-artifact@v3
+      with:
+        name: salarysleuth-linux-amd64
+        path: ./release-assets/
+
+    - name: Create Release
+      uses: softprops/action-gh-release@v1
+      with:
+        files: ./release-assets/*
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
