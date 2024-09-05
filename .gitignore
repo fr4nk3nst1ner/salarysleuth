@@ -1,4 +1,5 @@
 venv/
 salarysleuth
+salarysleuth.go.bak
 # go.mod
 # go.sum
