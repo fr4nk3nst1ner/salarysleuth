@@ -77,8 +77,8 @@ jobs:
     - name: Get Current Version Tag
       id: current_version
       run: |
-        VERSION=$(git describe --tags --abbrev=0 || echo "v0.0.0")
-        echo "CURRENT_VERSION=${VERSION}" >> $GITHUB_ENV
+        CURRENT_VERSION=$(git describe --tags --abbrev=0 || echo "v0.0.0")
+        echo "CURRENT_VERSION=${CURRENT_VERSION}" >> $GITHUB_ENV
 
     - name: Determine Next Version
       id: next_version
@@ -90,9 +90,12 @@ jobs:
         MINOR=$(echo $VERSION | cut -d. -f2)
         PATCH=$(echo $VERSION | cut -d. -f3)
         
+        # Start with the next patch version
+        PATCH=$((PATCH+1))
         NEXT_VERSION="v${MAJOR}.${MINOR}.${PATCH}"
         
-        while git rev-parse "${NEXT_VERSION}" >/dev/null 2>&1; do
+        # Ensure the new tag doesn't exist
+        while git rev-parse "$NEXT_VERSION" >/dev/null 2>&1; do
             PATCH=$((PATCH+1))
             NEXT_VERSION="v${MAJOR}.${MINOR}.${PATCH}"
         done
