@@ -77,6 +77,9 @@ jobs:
     - name: Determine Next Version
       id: next_version
       run: |
+        # Fetch all tags from the remote
+        git fetch --tags
+
         # Get the latest tag from the repository
         CURRENT_VERSION=$(git describe --tags --abbrev=0 || echo "v0.0.0")
         echo "Current Version: ${CURRENT_VERSION}"
@@ -92,7 +95,7 @@ jobs:
         NEXT_VERSION="v${MAJOR}.${MINOR}.${PATCH}"
 
         # Ensure the new tag doesn't exist
-        while git rev-parse --verify --quiet "$NEXT_VERSION" >/dev/null; do
+        while git rev-parse --quiet "refs/tags/$NEXT_VERSION" >/dev/null; do
             PATCH=$((PATCH+1))
             NEXT_VERSION="v${MAJOR}.${MINOR}.${PATCH}"
         done
