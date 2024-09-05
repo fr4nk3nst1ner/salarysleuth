@@ -16,7 +16,6 @@ jobs:
       matrix:
         goos: [linux, linux, darwin, windows]
         goarch: [amd64, arm64, arm64, amd64]
-        # Define file extensions based on OS
         ext: [ "", "", "", ".exe" ]
 
     steps:
@@ -54,9 +53,42 @@ jobs:
         name: salarysleuth-linux-amd64
         path: ./release-assets/
 
+    - name: Get Current Version Tag
+      id: current_version
+      run: |
+        VERSION=$(git describe --tags --abbrev=0 || echo "v0.0.0")
+        echo "CURRENT_VERSION=${VERSION}" >> $GITHUB_ENV
+
+    - name: Determine Next Version
+      id: next_version
+      run: |
+        CURRENT_VERSION=${{ env.CURRENT_VERSION }}
+        echo "Current Version: ${CURRENT_VERSION}"
+        # Remove the 'v' prefix and split the version number into its components
+        VERSION=${CURRENT_VERSION#v}
+        MAJOR=$(echo $VERSION | cut -d. -f1)
+        MINOR=$(echo $VERSION | cut -d. -f2)
+        PATCH=$(echo $VERSION | cut -d. -f3)
+        
+        # Increment the patch version (you can change this logic to increment minor/major as needed)
+        PATCH=$((PATCH+1))
+
+        # Form the next version
+        NEXT_VERSION="v${MAJOR}.${MINOR}.${PATCH}"
+        echo "NEXT_VERSION=${NEXT_VERSION}" >> $GITHUB_ENV
+
+    - name: Create New Tag
+      run: |
+        git config user.name "github-actions"
+        git config user.email "actions@github.com"
+        git tag ${{ env.NEXT_VERSION }}
+        git push origin ${{ env.NEXT_VERSION }}
+
     - name: Create Release
       uses: softprops/action-gh-release@v1
       with:
+        tag_name: ${{ env.NEXT_VERSION }}
+        release_name: "Release ${{ env.NEXT_VERSION }}"
         files: ./release-assets/*
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
