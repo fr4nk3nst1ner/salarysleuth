@@ -47,10 +47,32 @@ jobs:
     steps:
     - uses: actions/checkout@v4
 
-    - name: Download all binaries
+    - name: Download Linux x64 binary
       uses: actions/download-artifact@v3
       with:
+        name: salarysleuth-linux-amd64
         path: ./release-assets/
+
+    - name: Download Linux arm64 binary
+      uses: actions/download-artifact@v3
+      with:
+        name: salarysleuth-linux-arm64
+        path: ./release-assets/
+
+    - name: Download macOS arm64 binary
+      uses: actions/download-artifact@v3
+      with:
+        name: salarysleuth-darwin-arm64
+        path: ./release-assets/
+
+    - name: Download Windows x64 binary
+      uses: actions/download-artifact@v3
+      with:
+        name: salarysleuth-windows-amd64.exe
+        path: ./release-assets/
+
+    - name: List downloaded files
+      run: ls -al ./release-assets/
 
     - name: Get Current Version Tag
       id: current_version
@@ -63,12 +85,12 @@ jobs:
       run: |
         CURRENT_VERSION=${{ env.CURRENT_VERSION }}
         echo "Current Version: ${CURRENT_VERSION}"
-        
         VERSION=${CURRENT_VERSION#v}
         MAJOR=$(echo $VERSION | cut -d. -f1)
         MINOR=$(echo $VERSION | cut -d. -f2)
         PATCH=$(echo $VERSION | cut -d. -f3)
         
+        # Increment the patch version
         while git rev-parse "v${MAJOR}.${MINOR}.${PATCH}" >/dev/null 2>&1; do
             PATCH=$((PATCH+1))
         done
