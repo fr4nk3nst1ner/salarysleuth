@@ -1,12 +1,8 @@
 name: Go Release
 
 on:
-  push:
-    branches:
-      - "main"
-  pull_request:
-    branches:
-      - "main"
+  schedule:
+    - cron: '0 0 * * 0'  
 
 jobs:
   build:
@@ -41,7 +37,6 @@ jobs:
         path: salarysleuth-${{ matrix.goos }}-${{ matrix.goarch }}${{ matrix.ext }}
 
   release:
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     needs: build
     runs-on: ubuntu-latest
     steps:
