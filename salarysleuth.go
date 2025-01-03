@@ -16,6 +16,7 @@ import (
 
 	"math/rand"
 	"time"
+//	"math"
 
 	"github.com/pterm/pterm"
 	"github.com/PuerkitoBio/goquery"
@@ -32,6 +33,14 @@ const bannerText = `
 ╚═▀▀▀══╝╚═╝  ╚═╝╚══════╝╚═╝  ╚═╝╚═╝  ╚═╝   ╚═╝       ╚═▀▀▀══╝╚══════╝╚══════╝ ╚═════╝    ╚═╝   ╚═╝  ╚═╝
  @fr4nk3nst1ner                                                                                                        
 `
+
+const (
+	maxRetries = 3
+	minDelay   = 500 * time.Millisecond
+	maxDelay   = 1500 * time.Millisecond
+	timeout    = 15 * time.Second
+	maxWorkers = 5
+)
 
 func colorizeText(text string) string {
 	source := rand.NewSource(time.Now().UnixNano())
@@ -79,60 +88,94 @@ type Salary struct {
 
 const userAgent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36"
 
+func createHTTPClient() *http.Client {
+	return &http.Client{
+		Timeout: timeout,
+		Transport: &http.Transport{
+			MaxIdleConns:        100,
+			MaxIdleConnsPerHost: 100,
+			IdleConnTimeout:     90 * time.Second,
+		},
+	}
+}
+
 func extractSalaryFromJobPage(jobURL string, debug bool) (string, error) {
-	// Create a new request with a custom user agent
-	req, err := http.NewRequest("GET", jobURL, nil)
-	if err != nil {
-		return "", err
-	}
-	req.Header.Set("User-Agent", userAgent)
-
-	client := &http.Client{}
-	resp, err := client.Do(req)
-	if err != nil {
-		return "", err
-	}
-	defer resp.Body.Close()
-
-	doc, err := goquery.NewDocumentFromReader(resp.Body)
-	if err != nil {
-		return "", err
-	}
-
-	// Extract salary range directly from the div with class "salary compensation__salary"
-	var salaryText string
-	doc.Find("div.salary.compensation__salary").Each(func(i int, s *goquery.Selection) {
-		salaryText = strings.TrimSpace(s.Text())
-		if debug {
-			fmt.Printf("Extracted Salary Text: %s\n", salaryText)
+	client := createHTTPClient()
+	
+	for attempt := 0; attempt < maxRetries; attempt++ {
+		// Add random delay between requests
+		delay := time.Duration(rand.Float64()*(maxDelay.Seconds()-minDelay.Seconds())+minDelay.Seconds()) * time.Second
+		time.Sleep(delay)
+		
+		req, err := http.NewRequest("GET", jobURL, nil)
+		if err != nil {
+			continue
 		}
-	})
-
-	// Fallback to extracting salary from JSON-LD script tag if not found in the direct salary div
-	if salaryText == "" {
-		doc.Find("script[type='application/ld+json']").Each(func(i int, s *goquery.Selection) {
-			jsonContent := s.Text()
-
-			if strings.Contains(jsonContent, "baseSalary") {
-				if debug {
-					fmt.Println("Extracted JSON-LD content:", jsonContent)
-				}
-				var salaryData Salary
-				if err := json.Unmarshal([]byte(jsonContent), &salaryData); err != nil {
-					log.Println("Error parsing JSON:", err)
-					return
-				}
-
-				salaryText = fmt.Sprintf("$%.2f - $%.2f", salaryData.BaseSalary.Value.MinValue, salaryData.BaseSalary.Value.MaxValue)
+		
+		// Rotate user agents
+		req.Header.Set("User-Agent", getRandomUserAgent())
+		req.Header.Set("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8")
+		req.Header.Set("Accept-Language", "en-US,en;q=0.5")
+		req.Header.Set("Connection", "keep-alive")
+		
+		resp, err := client.Do(req)
+		if err != nil {
+			if attempt == maxRetries-1 {
+				return "", err
+			}
+			continue
+		}
+		defer resp.Body.Close()
+		
+		// Check if we're being rate limited
+		if resp.StatusCode == 429 || resp.StatusCode == 403 {
+			if debug {
+				log.Printf("Rate limited (attempt %d/%d). Waiting before retry...", attempt+1, maxRetries)
+			}
+			time.Sleep(delay * 2) // Double the delay on rate limit
+			continue
+		}
+		
+		doc, err := goquery.NewDocumentFromReader(resp.Body)
+		if err != nil {
+			continue
+		}
+		
+		// Extract salary range directly from the div with class "salary compensation__salary"
+		var salaryText string
+		doc.Find("div.salary.compensation__salary").Each(func(i int, s *goquery.Selection) {
+			salaryText = strings.TrimSpace(s.Text())
+			if debug {
+				fmt.Printf("Extracted Salary Text: %s\n", salaryText)
 			}
 		})
-	}
 
-	if salaryText == "" {
-		salaryText = "Not specified"
-	}
+		// Fallback to extracting salary from JSON-LD script tag if not found in the direct salary div
+		if salaryText == "" {
+			doc.Find("script[type='application/ld+json']").Each(func(i int, s *goquery.Selection) {
+				jsonContent := s.Text()
 
-	return salaryText, nil
+				if strings.Contains(jsonContent, "baseSalary") {
+					if debug {
+						fmt.Println("Extracted JSON-LD content:", jsonContent)
+					}
+					var salaryData Salary
+					if err := json.Unmarshal([]byte(jsonContent), &salaryData); err != nil {
+						log.Println("Error parsing JSON:", err)
+						return
+					}
+
+					salaryText = fmt.Sprintf("$%.2f - $%.2f", salaryData.BaseSalary.Value.MinValue, salaryData.BaseSalary.Value.MaxValue)
+				}
+			})
+		}
+
+		if salaryText != "" {
+			return salaryText, nil
+		}
+	}
+	
+	return "Not specified", nil
 }
 
 func getSalaryFromLevelsFyi(companyName string) (string, error) {
@@ -165,8 +208,115 @@ func getSalaryFromLevelsFyi(companyName string) (string, error) {
 	return salaryElem, nil
 }
 
+func processBatchJobs(jobs []SalaryInfo, debug bool) {
+	semaphore := make(chan struct{}, maxWorkers)
+	var wg sync.WaitGroup
+	bar := pb.StartNew(len(jobs))
+
+	for i := range jobs {
+		wg.Add(1)
+		go func(job *SalaryInfo) {
+			defer wg.Done()
+			semaphore <- struct{}{} // Acquire semaphore
+			defer func() {
+				<-semaphore // Release semaphore
+				bar.Increment()
+			}()
+
+			// Extract salary from LinkedIn with shorter timeout
+			salary, err := extractSalaryFromJobPage(job.URL, debug)
+			if err == nil && salary != "" {
+				job.SalaryRange = salary
+			} else {
+				job.SalaryRange = "Not specified"
+			}
+
+			// Cross-reference with levels.fyi
+			levelSalary, err := getSalaryFromLevelsFyi(strings.ToLower(strings.ReplaceAll(job.Company, " ", "-")))
+			if err == nil && levelSalary != "" {
+				job.LevelSalary = levelSalary
+			} else {
+				job.LevelSalary = "No Data"
+			}
+		}(&jobs[i])
+	}
+
+	wg.Wait()
+	bar.Finish()
+}
+
 func scrapeLinkedIn(description, city, titleKeyword string, remoteOnly bool, internshipsOnly bool, pages int, debug bool) ([]SalaryInfo, error) {
-	// Use the title keyword to directly search LinkedIn if no description is provided
+	var jobs []SalaryInfo
+	var jobsMutex sync.Mutex
+	var wg sync.WaitGroup
+	bar := pb.StartNew(pages)
+	
+	// Create a channel for page processing with buffer
+	pageChan := make(chan int, pages)
+	for i := 0; i < pages; i++ {
+		pageChan <- i
+	}
+	close(pageChan)
+
+	// Process pages concurrently with limited workers
+	for worker := 0; worker < 3; worker++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			
+			for pageNum := range pageChan {
+				// Minimal delay between requests
+				if pageNum > 0 {
+					time.Sleep(minDelay)
+				}
+
+				pageJobs := scrapeLinkedInPage(pageNum, description, city, titleKeyword, remoteOnly, internshipsOnly, debug)
+				
+				if len(pageJobs) > 0 {
+					jobsMutex.Lock()
+					jobs = append(jobs, pageJobs...)
+					jobsMutex.Unlock()
+				}
+				
+				bar.Increment()
+			}
+		}()
+	}
+
+	wg.Wait()
+	bar.Finish()
+
+	// Process all jobs concurrently using the new batch processor
+	if len(jobs) > 0 {
+		processBatchJobs(jobs, debug)
+	}
+
+	return jobs, nil
+}
+
+func addRandomQueryParams(baseURL string) string {
+	params := []string{
+		fmt.Sprintf("trk=%s", randomString(8)),
+		fmt.Sprintf("sessionId=%s", randomString(16)),
+		fmt.Sprintf("geoId=%d", rand.Intn(100000)),
+	}
+	if strings.Contains(baseURL, "?") {
+		return baseURL + "&" + strings.Join(params, "&")
+	}
+	return baseURL + "?" + strings.Join(params, "&")
+}
+
+func randomString(n int) string {
+	const letters = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
+	b := make([]byte, n)
+	for i := range b {
+		b[i] = letters[rand.Intn(len(letters))]
+	}
+	return string(b)
+}
+
+func scrapeLinkedInPage(pageNum int, description, city, titleKeyword string, remoteOnly, internshipsOnly, debug bool) []SalaryInfo {
+	var pageJobs []SalaryInfo
 	searchTerm := description
 	if description == "" {
 		searchTerm = titleKeyword
@@ -175,115 +325,141 @@ func scrapeLinkedIn(description, city, titleKeyword string, remoteOnly bool, int
 	descriptionEncoded := url.QueryEscape(searchTerm)
 	cityEncoded := url.QueryEscape(city)
 
-	var jobs []SalaryInfo
-	var wg sync.WaitGroup
-	bar := pb.StartNew(pages)
+	baseURL := fmt.Sprintf("https://www.linkedin.com/jobs/search?keywords=%s&location=%s&pageNum=%d", 
+		descriptionEncoded, cityEncoded, pageNum)
+	if remoteOnly {
+		baseURL += "&f_WT=2"
+	}
+	
+	// Add random query parameters
+	linkedInURL := addRandomQueryParams(baseURL)
 
-	for pageNum := 0; pageNum < pages; pageNum++ {
-		// Construct the LinkedIn URL, adding "f_WT=2" if remoteOnly is true
-		linkedInURL := fmt.Sprintf("https://www.linkedin.com/jobs/search?keywords=%s&location=%s&pageNum=%d", descriptionEncoded, cityEncoded, pageNum)
-		if remoteOnly {
-			linkedInURL += "&f_WT=2"
+	for attempt := 0; attempt < maxRetries; attempt++ {
+		if attempt > 0 {
+			// Exponential backoff with jitter
+			backoff := time.Duration(attempt*attempt)*time.Second + 
+				time.Duration(rand.Intn(1000))*time.Millisecond
+			time.Sleep(backoff)
 		}
 
-		// Print the generated LinkedIn URL for debugging purposes
-		if debug {
-			fmt.Printf("Searching LinkedIn with URL: %s\n", linkedInURL)
-		}
-
+		client := createHTTPClient()
 		req, err := http.NewRequest("GET", linkedInURL, nil)
 		if err != nil {
-			return nil, err
+			continue
 		}
-		req.Header.Set("User-Agent", userAgent)
 
-		client := &http.Client{}
+		// Add more headers to look like a real browser
+		req.Header = getRandomHeaders()
+
 		resp, err := client.Do(req)
-		if err != nil {
-			return nil, err
+		if err != nil || resp.StatusCode != 200 {
+			if debug {
+				log.Printf("Error on page %d (attempt %d/%d): Status: %d, Error: %v", 
+					pageNum, attempt+1, maxRetries, resp.StatusCode, err)
+			}
+			continue
 		}
 		defer resp.Body.Close()
 
+		// Add a small random delay before parsing
+		time.Sleep(time.Duration(rand.Intn(500))*time.Millisecond)
+
 		doc, err := goquery.NewDocumentFromReader(resp.Body)
 		if err != nil {
-			return nil, err
+			continue
 		}
 
+		// Check if we're being blocked
+		if isBlockedPage(doc) {
+			if debug {
+				log.Printf("Detected blocking page on attempt %d", attempt+1)
+			}
+			continue
+		}
+
+		foundJobs := false
 		doc.Find("div.job-search-card").Each(func(i int, s *goquery.Selection) {
+			foundJobs = true
 			title := s.Find("h3.base-search-card__title").Text()
 			company := s.Find("a.hidden-nested-link").Text()
 			location := s.Find("span.job-search-card__location").Text()
 			link, exists := s.Find("a.base-card__full-link").Attr("href")
 
-			if exists {
-				// Filter out internships unless the --internships flag is passed
-				isInternship := strings.Contains(strings.ToLower(title), "intern")
-				if !internshipsOnly && isInternship {
-					bar.Increment()
-					return
-				}
-
-				// Check if title matches the titleKeyword, if provided
-				if titleKeyword != "" && !strings.Contains(strings.ToLower(title), strings.ToLower(titleKeyword)) {
-					bar.Increment()
-					return
-				}
-
-				// Filter jobs based on the location and remote-only flag if applicable
-				isRemote := strings.Contains(strings.ToLower(location), "remote") || strings.Contains(strings.ToLower(location), "united states")
-				if remoteOnly && !isRemote {
-					bar.Increment()
-					return
-				}
-
-				job := SalaryInfo{
+			if exists && isValidJob(title, location, titleKeyword, remoteOnly, internshipsOnly) {
+				pageJobs = append(pageJobs, SalaryInfo{
 					Title:    strings.TrimSpace(title),
 					Company:  strings.TrimSpace(company),
 					Location: strings.TrimSpace(location),
 					URL:      strings.TrimSpace(link),
-				}
-
-				jobs = append(jobs, job)
-				wg.Add(1)
-				go processJob(&jobs[len(jobs)-1], &wg, bar, debug)
+				})
 			}
 		})
+
+		if !foundJobs && debug {
+			log.Printf("No job cards found on page %d, attempt %d", pageNum, attempt+1)
+		}
+
+		if len(pageJobs) > 0 {
+			return pageJobs
+		}
 	}
 
-	wg.Wait()
-	bar.Finish()
-
-	return jobs, nil
+	return pageJobs
 }
 
-func processJob(salaryInfo *SalaryInfo, wg *sync.WaitGroup, bar *pb.ProgressBar, debug bool) {
-	defer wg.Done()
-	defer bar.Increment()
-
-	// Extract salary from LinkedIn
-	salary, err := extractSalaryFromJobPage(salaryInfo.URL, debug)
-	if err == nil && salary != "" {
-		salaryInfo.SalaryRange = salary
-	} else {
-		salaryInfo.SalaryRange = "Not specified"
+func getRandomHeaders() http.Header {
+	headers := http.Header{
+		"User-Agent":      {getRandomUserAgent()},
+		"Accept":         {"text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8"},
+		"Accept-Language": {"en-US,en;q=0.5"},
+		"Connection":     {"keep-alive"},
+		"Cache-Control":  {"no-cache"},
+		"Pragma":        {"no-cache"},
+		"Sec-Fetch-Dest": {"document"},
+		"Sec-Fetch-Mode": {"navigate"},
+		"Sec-Fetch-Site": {"none"},
+		"Sec-Fetch-User": {"?1"},
+		"DNT":           {"1"},
+		"Upgrade-Insecure-Requests": {"1"},
 	}
-
-	// Cross-reference with levels.fyi
-	levelSalary, err := getSalaryFromLevelsFyi(strings.ToLower(strings.ReplaceAll(salaryInfo.Company, " ", "-")))
-	if err == nil && levelSalary != "" {
-		salaryInfo.LevelSalary = levelSalary
-	} else {
-		salaryInfo.LevelSalary = "No Data"
-	}
-
-	// Debug: Print the salary before colorizing
-	//fmt.Printf("Debug: Raw Level Salary before colorizing: %s\n", salaryInfo.LevelSalary)
-
-	// Colorize salary
-	//coloredSalary := colorizeSalary(salaryInfo.LevelSalary)
-	//fmt.Printf("Debug: Colored Salary: %s\n", coloredSalary)
+	return headers
 }
 
+func isBlockedPage(doc *goquery.Document) bool {
+	// Check for common blocking indicators
+	blockedTexts := []string{
+		"please verify you are a human",
+		"unusual activity",
+		"security verification",
+		"check your network",
+	}
+	
+	pageText := strings.ToLower(doc.Text())
+	for _, text := range blockedTexts {
+		if strings.Contains(pageText, text) {
+			return true
+		}
+	}
+	return false
+}
+
+func isValidJob(title, location, titleKeyword string, remoteOnly, internshipsOnly bool) bool {
+	isInternship := strings.Contains(strings.ToLower(title), "intern")
+	if !internshipsOnly && isInternship {
+		return false
+	}
+
+	if titleKeyword != "" && !strings.Contains(strings.ToLower(title), strings.ToLower(titleKeyword)) {
+		return false
+	}
+
+	isRemote := strings.Contains(strings.ToLower(location), "remote") || strings.Contains(strings.ToLower(location), "united states")
+	if remoteOnly && !isRemote {
+		return false
+	}
+
+	return true
+}
 
 func extractNumericValue(salaryStr string) int {
 	// Remove non-numeric characters and convert to integer
@@ -320,6 +496,16 @@ func colorizeSalary(salary string) string {
     }
 }
 
+func getRandomUserAgent() string {
+	userAgents := []string{
+		"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36",
+		"Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36",
+		"Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:89.0) Gecko/20100101 Firefox/89.0",
+		"Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/14.1.1 Safari/605.1.15",
+		"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36 Edg/91.0.864.59",
+	}
+	return userAgents[rand.Intn(len(userAgents))]
+}
 
 func main() {
 	description := flag.String("d", "", "Job characteristic or keyword to search for in the job description on LinkedIn")
