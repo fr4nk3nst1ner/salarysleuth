@@ -35,10 +35,10 @@ const bannerText = `
 `
 
 const (
-	maxRetries = 3
-	minDelay   = 500 * time.Millisecond
-	maxDelay   = 1500 * time.Millisecond
-	timeout    = 15 * time.Second
+	maxRetries = 5
+	minDelay   = 200 * time.Millisecond
+	maxDelay   = 500 * time.Millisecond
+	timeout    = 10 * time.Second
 	maxWorkers = 5
 )
 
@@ -132,7 +132,7 @@ func extractSalaryFromJobPage(jobURL string, debug bool) (string, error) {
 			if debug {
 				log.Printf("Rate limited (attempt %d/%d). Waiting before retry...", attempt+1, maxRetries)
 			}
-			time.Sleep(delay * 2) // Double the delay on rate limit
+			time.Sleep(delay * 2) // Now delay is defined
 			continue
 		}
 		
@@ -208,10 +208,9 @@ func getSalaryFromLevelsFyi(companyName string) (string, error) {
 	return salaryElem, nil
 }
 
-func processBatchJobs(jobs []SalaryInfo, debug bool) {
+func processBatchJobs(jobs []SalaryInfo, debug bool, bar *pb.ProgressBar) {
 	semaphore := make(chan struct{}, maxWorkers)
 	var wg sync.WaitGroup
-	bar := pb.StartNew(len(jobs))
 
 	for i := range jobs {
 		wg.Add(1)
@@ -223,7 +222,7 @@ func processBatchJobs(jobs []SalaryInfo, debug bool) {
 				bar.Increment()
 			}()
 
-			// Extract salary from LinkedIn with shorter timeout
+			// Extract salary from LinkedIn
 			salary, err := extractSalaryFromJobPage(job.URL, debug)
 			if err == nil && salary != "" {
 				job.SalaryRange = salary
@@ -242,15 +241,36 @@ func processBatchJobs(jobs []SalaryInfo, debug bool) {
 	}
 
 	wg.Wait()
-	bar.Finish()
+}
+
+type ScrapeProgress struct {
+	PageBar    *pb.ProgressBar
+	JobBar     *pb.ProgressBar
+	TotalJobs  int
+	FoundJobs  int
+	mu         sync.Mutex
 }
 
 func scrapeLinkedIn(description, city, titleKeyword string, remoteOnly bool, internshipsOnly bool, pages int, debug bool) ([]SalaryInfo, error) {
 	var jobs []SalaryInfo
 	var jobsMutex sync.Mutex
-	var wg sync.WaitGroup
-	bar := pb.StartNew(pages)
 	
+	// Create progress tracking
+	progress := &ScrapeProgress{
+		PageBar: pb.New(pages),
+		JobBar:  pb.New(0),
+	}
+	
+	// Set the total for both bars
+	progress.PageBar.SetTotal(int64(pages))
+	
+	// Create progress bar pool
+	pool, err := pb.StartPool(progress.PageBar, progress.JobBar)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create progress bars: %v", err)
+	}
+	defer pool.Stop()
+
 	// Create a channel for page processing with buffer
 	pageChan := make(chan int, pages)
 	for i := 0; i < pages; i++ {
@@ -258,14 +278,15 @@ func scrapeLinkedIn(description, city, titleKeyword string, remoteOnly bool, int
 	}
 	close(pageChan)
 
+	var wg sync.WaitGroup
 	// Process pages concurrently with limited workers
-	for worker := 0; worker < 3; worker++ {
+	pageWorkers := 5
+	for worker := 0; worker < pageWorkers; worker++ {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
 			
 			for pageNum := range pageChan {
-				// Minimal delay between requests
 				if pageNum > 0 {
 					time.Sleep(minDelay)
 				}
@@ -275,20 +296,26 @@ func scrapeLinkedIn(description, city, titleKeyword string, remoteOnly bool, int
 				if len(pageJobs) > 0 {
 					jobsMutex.Lock()
 					jobs = append(jobs, pageJobs...)
+					progress.mu.Lock()
+					progress.FoundJobs += len(pageJobs)
+					progress.JobBar.SetTotal(int64(progress.FoundJobs))
+					progress.mu.Unlock()
 					jobsMutex.Unlock()
 				}
 				
-				bar.Increment()
+				progress.PageBar.Increment()
 			}
 		}()
 	}
 
 	wg.Wait()
-	bar.Finish()
+
+	// Update job progress bar total
+	progress.JobBar.SetTotal(int64(progress.FoundJobs))
 
 	// Process all jobs concurrently using the new batch processor
 	if len(jobs) > 0 {
-		processBatchJobs(jobs, debug)
+		processBatchJobs(jobs, debug, progress.JobBar)
 	}
 
 	return jobs, nil
@@ -336,9 +363,7 @@ func scrapeLinkedInPage(pageNum int, description, city, titleKeyword string, rem
 
 	for attempt := 0; attempt < maxRetries; attempt++ {
 		if attempt > 0 {
-			// Exponential backoff with jitter
-			backoff := time.Duration(attempt*attempt)*time.Second + 
-				time.Duration(rand.Intn(1000))*time.Millisecond
+			backoff := time.Duration(attempt*500) * time.Millisecond
 			time.Sleep(backoff)
 		}
 
@@ -361,8 +386,8 @@ func scrapeLinkedInPage(pageNum int, description, city, titleKeyword string, rem
 		}
 		defer resp.Body.Close()
 
-		// Add a small random delay before parsing
-		time.Sleep(time.Duration(rand.Intn(500))*time.Millisecond)
+		// Reduce parsing delay
+		time.Sleep(time.Duration(rand.Intn(200)) * time.Millisecond)
 
 		doc, err := goquery.NewDocumentFromReader(resp.Body)
 		if err != nil {
