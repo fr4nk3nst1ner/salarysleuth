@@ -178,15 +178,38 @@ func extractSalaryFromJobPage(jobURL string, debug bool) (string, error) {
 	return "Not specified", nil
 }
 
-func getSalaryFromLevelsFyi(companyName string) (string, error) {
-	url := fmt.Sprintf("https://www.levels.fyi/companies/%s/salaries/", companyName)
+type LevelsAPIResponse struct {
+	PageProps struct {
+		Percentiles struct {
+			Tc struct {
+				P50 float64 `json:"p50"`
+			} `json:"tc"`
+		} `json:"percentiles"`
+	} `json:"pageProps"`
+}
 
-	req, err := http.NewRequest("GET", url, nil)
+func getSalaryFromLevelsFyi(companyName string) (string, error) {
+	// Format company name: lowercase and replace spaces with hyphens
+	formattedCompany := strings.ToLower(strings.ReplaceAll(companyName, " ", "-"))
+	
+	// Construct the URL for the levels.fyi company data
+	baseURL := "https://www.levels.fyi/_next/data/nUglqYzRFa6Ao7RJX3blx/companies"
+	apiURL := fmt.Sprintf("%s/%s/salaries/software-engineer.json?company=%s&job-family=software-engineer", 
+		baseURL, formattedCompany, formattedCompany)
+
+	// Create request
+	req, err := http.NewRequest("GET", apiURL, nil)
 	if err != nil {
 		return "", err
 	}
-	req.Header.Set("User-Agent", userAgent)
 
+	// Set headers
+	req.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36")
+	req.Header.Set("Accept", "application/json")
+	req.Header.Set("Origin", "https://www.levels.fyi")
+	req.Header.Set("Referer", "https://www.levels.fyi/")
+
+	// Make request
 	client := &http.Client{}
 	resp, err := client.Do(req)
 	if err != nil {
@@ -194,18 +217,25 @@ func getSalaryFromLevelsFyi(companyName string) (string, error) {
 	}
 	defer resp.Body.Close()
 
-	doc, err := goquery.NewDocumentFromReader(resp.Body)
-	if err != nil {
-		return "", err
-	}
-
-	// Parse the salary from the levels.fyi page
-	salaryElem := doc.Find("td:contains('Software Engineer Salary')").Next().Text()
-	if salaryElem == "" {
+	// Check status code
+	if resp.StatusCode != http.StatusOK {
 		return "No Data", nil
 	}
 
-	return salaryElem, nil
+	// Parse response
+	var apiResp LevelsAPIResponse
+	if err := json.NewDecoder(resp.Body).Decode(&apiResp); err != nil {
+		return "", err
+	}
+
+	// Get median total compensation
+	medianTC := apiResp.PageProps.Percentiles.Tc.P50
+	if medianTC <= 0 {
+		return "No Data", nil
+	}
+
+	// Format the salary with comma separators
+	return fmt.Sprintf("$%s", humanize.Comma(int64(medianTC))), nil
 }
 
 func processBatchJobs(jobs []SalaryInfo, debug bool, bar *pb.ProgressBar) {
