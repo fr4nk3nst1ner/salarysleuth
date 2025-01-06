@@ -13,6 +13,7 @@ import (
 	"strings"
 	"sync"
 	"os"
+	"os/exec"
 
 	"math/rand"
 	"time"
@@ -22,6 +23,7 @@ import (
 	"github.com/PuerkitoBio/goquery"
 	"github.com/cheggaaa/pb/v3"
     "github.com/dustin/go-humanize"
+	"crypto/tls"
 )
 
 const bannerText = `
@@ -75,6 +77,7 @@ type SalaryInfo struct {
 	URL         string
 	SalaryRange string
 	LevelSalary string
+	Source      string
 }
 
 type Salary struct {
@@ -88,7 +91,36 @@ type Salary struct {
 
 const userAgent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36"
 
-func createHTTPClient() *http.Client {
+func createProxyHTTPClient(proxyURL string) *http.Client {
+	// Parse the proxy URL
+	proxy, err := url.Parse(proxyURL)
+	if err != nil {
+		log.Printf("Error parsing proxy URL: %v", err)
+		return createHTTPClient("") // Fallback to regular client
+	}
+
+	// Create transport with proxy and TLS config that skips verification
+	transport := &http.Transport{
+		Proxy: http.ProxyURL(proxy),
+		TLSClientConfig: &tls.Config{
+			InsecureSkipVerify: true, // Skip certificate verification
+		},
+		MaxIdleConns:        100,
+		MaxIdleConnsPerHost: 100,
+		IdleConnTimeout:     90 * time.Second,
+	}
+
+	return &http.Client{
+		Timeout:   timeout,
+		Transport: transport,
+	}
+}
+
+func createHTTPClient(proxyURL string) *http.Client {
+	if proxyURL != "" {
+		return createProxyHTTPClient(proxyURL)
+	}
+
 	return &http.Client{
 		Timeout: timeout,
 		Transport: &http.Transport{
@@ -99,8 +131,8 @@ func createHTTPClient() *http.Client {
 	}
 }
 
-func extractSalaryFromJobPage(jobURL string, debug bool) (string, error) {
-	client := createHTTPClient()
+func extractSalaryFromJobPage(jobURL string, debug bool, proxyURL string) (string, error) {
+	client := createHTTPClient(proxyURL)
 	
 	for attempt := 0; attempt < maxRetries; attempt++ {
 		// Add random delay between requests
@@ -188,7 +220,7 @@ type LevelsAPIResponse struct {
 	} `json:"pageProps"`
 }
 
-func getSalaryFromLevelsFyi(companyName string) (string, error) {
+func getSalaryFromLevelsFyi(companyName string, proxyURL string) (string, error) {
 	// Format company name: lowercase and replace spaces with hyphens
 	formattedCompany := strings.ToLower(strings.ReplaceAll(companyName, " ", "-"))
 	
@@ -210,7 +242,7 @@ func getSalaryFromLevelsFyi(companyName string) (string, error) {
 	req.Header.Set("Referer", "https://www.levels.fyi/")
 
 	// Make request
-	client := &http.Client{}
+	client := createHTTPClient(proxyURL)
 	resp, err := client.Do(req)
 	if err != nil {
 		return "", err
@@ -253,7 +285,7 @@ func processBatchJobs(jobs []SalaryInfo, debug bool, bar *pb.ProgressBar) {
 			}()
 
 			// Extract salary from LinkedIn
-			salary, err := extractSalaryFromJobPage(job.URL, debug)
+			salary, err := extractSalaryFromJobPage(job.URL, debug, "")
 			if err == nil && salary != "" {
 				job.SalaryRange = salary
 			} else {
@@ -261,7 +293,7 @@ func processBatchJobs(jobs []SalaryInfo, debug bool, bar *pb.ProgressBar) {
 			}
 
 			// Cross-reference with levels.fyi
-			levelSalary, err := getSalaryFromLevelsFyi(strings.ToLower(strings.ReplaceAll(job.Company, " ", "-")))
+			levelSalary, err := getSalaryFromLevelsFyi(strings.ToLower(strings.ReplaceAll(job.Company, " ", "-")), "")
 			if err == nil && levelSalary != "" {
 				job.LevelSalary = levelSalary
 			} else {
@@ -281,74 +313,539 @@ type ScrapeProgress struct {
 	mu         sync.Mutex
 }
 
-func scrapeLinkedIn(description, city, titleKeyword string, remoteOnly bool, internshipsOnly bool, pages int, debug bool) ([]SalaryInfo, error) {
-	var jobs []SalaryInfo
+func constructGoogleSearchURL(description string) string {
+	// Format the search query similar to the Python script
+	searchQuery := url.QueryEscape(fmt.Sprintf("site:lever.co OR site:greenhouse.io %s", description))
+	return fmt.Sprintf("https://www.google.com/search?q=%s", searchQuery)
+}
+
+func extractJobURLs(doc *goquery.Document) []string {
+	var urls []string
+	doc.Find("a").Each(func(i int, s *goquery.Selection) {
+		href, exists := s.Attr("href")
+		if !exists {
+			return
+		}
+
+		// Extract actual URL from Google's redirect URL
+		if strings.HasPrefix(href, "/url?q=") {
+			href = strings.Split(href, "&")[0]
+			href = strings.TrimPrefix(href, "/url?q=")
+			
+			// Only include lever.co and greenhouse.io URLs
+			if strings.Contains(href, "lever.co") || strings.Contains(href, "greenhouse.io") {
+				decodedURL, err := url.QueryUnescape(href)
+				if err == nil {
+					urls = append(urls, decodedURL)
+				}
+			}
+		}
+	})
+	return urls
+}
+
+func scrapeJobBoard(jobURL string, debug bool, proxyURL string) (*SalaryInfo, error) {
+	// Clean up the URL to ensure we're using the direct boards.greenhouse.io URL
+	if !strings.Contains(jobURL, "boards.greenhouse.io") {
+		// Extract job ID from URL
+		re := regexp.MustCompile(`(?:gh_jid=|jobs/|job_app\?.*token=)(\d+)`)
+		matches := re.FindStringSubmatch(jobURL)
+		if len(matches) > 1 {
+			jobID := matches[1]
+			// Try to find the company name from the URL
+			companyRe := regexp.MustCompile(`(?:greenhouse\.io/|boards\.greenhouse\.io/)([^/]+)`)
+			companyMatches := companyRe.FindStringSubmatch(jobURL)
+			if len(companyMatches) > 1 {
+				company := companyMatches[1]
+				jobURL = fmt.Sprintf("https://boards.greenhouse.io/%s/jobs/%s", company, jobID)
+			}
+		}
+	}
+
+	if debug {
+		log.Printf("Scraping job page: %s", jobURL)
+	}
+
+	client := createHTTPClient(proxyURL)
+	req, err := http.NewRequest("GET", jobURL, nil)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Set("User-Agent", getRandomUserAgent())
+	req.Header.Set("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8")
+
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	// Handle redirects
+	if resp.StatusCode == http.StatusFound || resp.StatusCode == http.StatusMovedPermanently {
+		redirectURL := resp.Header.Get("Location")
+		if debug {
+			log.Printf("Following redirect to: %s", redirectURL)
+		}
+
+		// Create new request for redirect URL
+		redirectReq, err := http.NewRequest("GET", redirectURL, nil)
+		if err != nil {
+			return nil, err
+		}
+		redirectReq.Header = req.Header
+
+		// Make request to redirect URL
+		redirectResp, err := client.Do(redirectReq)
+		if err != nil {
+			return nil, err
+		}
+		defer redirectResp.Body.Close()
+
+		if redirectResp.StatusCode != http.StatusOK {
+			if debug {
+				log.Printf("Got status code %d for redirect URL: %s", redirectResp.StatusCode, redirectURL)
+			}
+			return nil, fmt.Errorf("status code: %d", redirectResp.StatusCode)
+		}
+
+		resp = redirectResp
+	} else if resp.StatusCode != http.StatusOK {
+		if debug {
+			log.Printf("Got status code %d for URL: %s", resp.StatusCode, jobURL)
+		}
+		return nil, fmt.Errorf("status code: %d", resp.StatusCode)
+	}
+
+	doc, err := goquery.NewDocumentFromReader(resp.Body)
+	if err != nil {
+		return nil, err
+	}
+
+	var jobInfo SalaryInfo
+	jobInfo.URL = jobURL
+	jobInfo.Source = "greenhouse"
+
+	// Extract company name from URL
+	if strings.Contains(jobURL, "greenhouse.io") {
+		parts := strings.Split(jobURL, "greenhouse.io/")
+		if len(parts) > 1 {
+			companyPath := strings.Split(parts[1], "/")[0]
+			jobInfo.Company = strings.ReplaceAll(companyPath, "-", " ")
+		}
+	}
+
+	// Enhanced job title extraction with multiple selectors
+	titleSelectors := []string{
+		"h1.app-title",
+		"h1.job-title",
+		"h1#gh-job-title",
+		"div.heading h1",
+		"div.job-header h1",
+		"div#header h1",
+		"div#content h1",
+		"meta[property='og:title']",
+		"div.opening-title",      // Added more selectors
+		"div.job-title",
+		"h1.position-title",
+	}
+
+	for _, selector := range titleSelectors {
+		var title string
+		if strings.HasPrefix(selector, "meta") {
+			title, _ = doc.Find(selector).Attr("content")
+		} else {
+			title = doc.Find(selector).First().Text()
+		}
+		title = strings.TrimSpace(title)
+		if title != "" {
+			jobInfo.Title = title
+			break
+		}
+	}
+
+	// Enhanced location extraction with multiple selectors
+	locationSelectors := []string{
+		"div.location",
+		"div.job-location",
+		"span.location",
+		"div.company-location",
+		"div#location",
+		"meta[name='job-location']",
+		"div.job-info div:contains('Location')",
+		"div.section-wrapper div:contains('Location')",
+	}
+
+	for _, selector := range locationSelectors {
+		var location string
+		if strings.HasPrefix(selector, "meta") {
+			location, _ = doc.Find(selector).Attr("content")
+		} else {
+			location = doc.Find(selector).First().Text()
+		}
+		location = strings.TrimSpace(location)
+		location = strings.TrimPrefix(location, "Location")
+		location = strings.TrimPrefix(location, ":")
+		location = strings.TrimSpace(location)
+		
+		if location != "" {
+			jobInfo.Location = location
+			break
+		}
+	}
+
+	if debug {
+		log.Printf("Extracted job info:\nTitle: %q\nCompany: %q\nLocation: %q\nSource: %s\nURL: %s\n",
+			jobInfo.Title, jobInfo.Company, jobInfo.Location, jobInfo.Source, jobInfo.URL)
+	}
+
+	return &jobInfo, nil
+}
+
+func normalizeGreenhouseURL(jobURL string) string {
+	// Extract job ID and company from various Greenhouse URL formats
+	var jobID, company string
+	
+	// Match patterns like "jobs/1234567" or "gh_jid=1234567"
+	jobIDRegex := regexp.MustCompile(`(?:jobs/|gh_jid=)(\d+)`)
+	jobMatch := jobIDRegex.FindStringSubmatch(jobURL)
+	
+	// Match company name from URL
+	companyRegex := regexp.MustCompile(`(?:boards\.greenhouse\.io/|job-boards\.greenhouse\.io/|careers\.)([^/\?]+)`)
+	companyMatch := companyRegex.FindStringSubmatch(jobURL)
+	
+	if len(jobMatch) > 1 {
+		jobID = jobMatch[1]
+	}
+	
+	if len(companyMatch) > 1 {
+		company = companyMatch[1]
+	}
+	
+	// If we have both company and job ID, construct the canonical URL
+	if company != "" && jobID != "" {
+		return fmt.Sprintf("https://boards.greenhouse.io/%s/jobs/%s", company, jobID)
+	}
+	
+	return jobURL
+}
+
+func getJobURLs(description string, pages int, debug bool, proxyURL string, source string) ([]string, error) {
+	// Construct the query based on the source
+	var query string
+	if source == "" {
+		query = fmt.Sprintf("site:lever.co OR site:greenhouse.io %s", description)
+	} else if source == "greenhouse" {
+		query = fmt.Sprintf("site:greenhouse.io %s", description)
+	} else if source == "lever" {
+		query = fmt.Sprintf("site:lever.co %s", description)
+	}
+	
+	// Create command with base arguments
+	args := []string{"-e", "google", "-p", fmt.Sprintf("%d", pages), "-s", "-q", query}
+	
+	// Add proxy argument if provided
+	if proxyURL != "" {
+		args = append(args, "-x", proxyURL)
+	}
+	
+	cmd := exec.Command("go-dork", args...)
+
+	if debug {
+		log.Printf("Running command: go-dork %s", strings.Join(args, " "))
+	}
+
+	// Capture the output
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		if debug {
+			log.Printf("go-dork error: %v\nOutput: %s", err, string(output))
+		}
+		return nil, err
+	}
+
+	// Extract URLs using regex based on source
+	var re *regexp.Regexp
+	if source == "" {
+		re = regexp.MustCompile(`https?://[^\s"]+(?:greenhouse\.io|lever\.co)[^\s"]*`)
+	} else if source == "greenhouse" {
+		re = regexp.MustCompile(`https?://[^\s"]+greenhouse\.io[^\s"]*(?:jobs/\d+|gh_jid=\d+)[^\s"]*`)
+	} else if source == "lever" {
+		re = regexp.MustCompile(`https?://jobs\.lever\.co/[^/]+/[a-f0-9-]+(?:\?[^"\s]*)?`)
+	}
+	
+	urls := re.FindAllString(string(output), -1)
+	
+	// Normalize and deduplicate URLs
+	seen := make(map[string]bool)
+	var normalizedURLs []string
+	
+	for _, url := range urls {
+		if source == "greenhouse" || (source == "" && strings.Contains(url, "greenhouse.io")) {
+			normalizedURL := normalizeGreenhouseURL(url)
+			if !seen[normalizedURL] {
+				seen[normalizedURL] = true
+				normalizedURLs = append(normalizedURLs, normalizedURL)
+			}
+		} else if source == "lever" || (source == "" && strings.Contains(url, "lever.co")) {
+			if !seen[url] {
+				seen[url] = true
+				normalizedURLs = append(normalizedURLs, url)
+			}
+		}
+	}
+
+	if debug {
+		log.Printf("Found %d unique URLs from go-dork for source %s", len(normalizedURLs), source)
+		for i, url := range normalizedURLs {
+			log.Printf("URL %d: %s", i+1, url)
+		}
+	}
+
+	return normalizedURLs, nil
+}
+
+func scrapeGreenhouse(description string, pages int, debug bool, proxyURL string, progress *ScrapeProgress) ([]SalaryInfo, error) {
+	var allJobs []SalaryInfo
+	var jobsMutex sync.Mutex
+
+	// Get job URLs from go-dork
+	jobURLs, err := getJobURLs(description, pages, debug, proxyURL, "greenhouse")
+	if err != nil {
+		if debug {
+			log.Printf("Error getting Greenhouse job URLs: %v", err)
+		}
+		return nil, err
+	}
+
+	// Create a channel for job processing
+	jobChan := make(chan string, len(jobURLs))
+	for _, url := range jobURLs {
+		jobChan <- url
+	}
+	close(jobChan)
+
+	// Process jobs concurrently with limited workers
+	var jobWg sync.WaitGroup
+	jobWorkers := 5
+	for i := 0; i < jobWorkers; i++ {
+		jobWg.Add(1)
+		go func() {
+			defer jobWg.Done()
+			for jobURL := range jobChan {
+				if debug {
+					log.Printf("Processing Greenhouse job URL: %s", jobURL)
+				}
+
+				jobInfo, err := scrapeJobBoard(jobURL, debug, proxyURL)
+				if err != nil {
+					if debug {
+						log.Printf("Error scraping Greenhouse job %s: %v", jobURL, err)
+					}
+					continue
+				}
+
+				if jobInfo != nil {
+					jobsMutex.Lock()
+					allJobs = append(allJobs, *jobInfo)
+					progress.mu.Lock()
+					progress.FoundJobs++
+					progress.JobBar.SetTotal(int64(progress.FoundJobs))
+					progress.mu.Unlock()
+					jobsMutex.Unlock()
+				}
+			}
+		}()
+	}
+
+	jobWg.Wait()
+	progress.PageBar.Increment()
+
+	return allJobs, nil
+}
+
+func scrapeLever(description string, pages int, debug bool, proxyURL string, progress *ScrapeProgress) ([]SalaryInfo, error) {
+	var allJobs []SalaryInfo
+	var jobsMutex sync.Mutex
+
+	// Get job URLs from go-dork
+	jobURLs, err := getJobURLs(description, pages, debug, proxyURL, "lever")
+	if err != nil {
+		if debug {
+			log.Printf("Error getting Lever job URLs: %v", err)
+		}
+		return nil, err
+	}
+
+	// Create a channel for job processing
+	jobChan := make(chan string, len(jobURLs))
+	for _, url := range jobURLs {
+		// Only process actual job listings
+		if strings.Contains(url, "jobs.lever.co") && strings.Count(url, "/") >= 4 {
+			jobChan <- url
+		}
+	}
+	close(jobChan)
+
+	// Process jobs concurrently with limited workers
+	var jobWg sync.WaitGroup
+	jobWorkers := 5
+	for i := 0; i < jobWorkers; i++ {
+		jobWg.Add(1)
+		go func() {
+			defer jobWg.Done()
+			for jobURL := range jobChan {
+				if debug {
+					log.Printf("Processing Lever job URL: %s", jobURL)
+				}
+
+				client := createHTTPClient(proxyURL)
+				req, err := http.NewRequest("GET", jobURL, nil)
+				if err != nil {
+					if debug {
+						log.Printf("Error creating request for %s: %v", jobURL, err)
+					}
+					continue
+				}
+
+				req.Header.Set("User-Agent", getRandomUserAgent())
+				req.Header.Set("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8")
+
+				resp, err := client.Do(req)
+				if err != nil {
+					if debug {
+						log.Printf("Error fetching %s: %v", jobURL, err)
+					}
+					continue
+				}
+				defer resp.Body.Close()
+
+				if resp.StatusCode != http.StatusOK {
+					if debug {
+						log.Printf("Got status %d for %s", resp.StatusCode, jobURL)
+					}
+					continue
+				}
+
+				doc, err := goquery.NewDocumentFromReader(resp.Body)
+				if err != nil {
+					if debug {
+						log.Printf("Error parsing HTML for %s: %v", jobURL, err)
+					}
+					continue
+				}
+
+				var jobInfo SalaryInfo
+				jobInfo.URL = jobURL
+				jobInfo.Source = "lever"
+
+				// Extract company name from URL
+				parts := strings.Split(jobURL, "jobs.lever.co/")
+				if len(parts) > 1 {
+					companyPath := strings.Split(parts[1], "/")[0]
+					jobInfo.Company = strings.ReplaceAll(companyPath, "-", " ")
+				}
+
+				// Extract job title
+				jobInfo.Title = strings.TrimSpace(doc.Find("div.posting-headline h2").Text())
+
+				// Extract location
+				jobInfo.Location = strings.TrimSpace(doc.Find("div.posting-categories .location").Text())
+
+				// Only add job if we got a title
+				if jobInfo.Title != "" {
+					jobsMutex.Lock()
+					allJobs = append(allJobs, jobInfo)
+					progress.mu.Lock()
+					progress.FoundJobs++
+					progress.JobBar.SetTotal(int64(progress.FoundJobs))
+					progress.mu.Unlock()
+					jobsMutex.Unlock()
+				}
+			}
+		}()
+	}
+
+	jobWg.Wait()
+	progress.PageBar.Increment()
+
+	return allJobs, nil
+}
+
+func scrapeLinkedIn(description, city, titleKeyword string, remoteOnly bool, internshipsOnly bool, pages int, debug bool, proxyURL string, source string) ([]SalaryInfo, error) {
+	var allJobs []SalaryInfo
 	var jobsMutex sync.Mutex
 	
-	// Create progress tracking
+	// Create progress tracking with appropriate number of pages
+	totalPages := pages
+	if source == "" {
+		totalPages *= 3 // LinkedIn, Greenhouse, and Lever
+	} else {
+		totalPages *= 1 // Only one source
+	}
+	
 	progress := &ScrapeProgress{
-		PageBar: pb.New(pages),
+		PageBar: pb.New(totalPages),
 		JobBar:  pb.New(0),
 	}
 	
-	// Set the total for both bars
-	progress.PageBar.SetTotal(int64(pages))
-	
-	// Create progress bar pool
 	pool, err := pb.StartPool(progress.PageBar, progress.JobBar)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create progress bars: %v", err)
 	}
 	defer pool.Stop()
 
-	// Create a channel for page processing with buffer
-	pageChan := make(chan int, pages)
-	for i := 0; i < pages; i++ {
-		pageChan <- i
-	}
-	close(pageChan)
-
 	var wg sync.WaitGroup
-	// Process pages concurrently with limited workers
-	pageWorkers := 5
-	for worker := 0; worker < pageWorkers; worker++ {
+
+	// Scrape LinkedIn jobs if requested
+	if source == "" || source == "linkedin" {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			
-			for pageNum := range pageChan {
-				if pageNum > 0 {
-					time.Sleep(minDelay)
-				}
+			linkedInJobs, err := scrapeLinkedInPages(description, city, titleKeyword, remoteOnly, internshipsOnly, pages, debug, progress, proxyURL)
+			if err == nil && len(linkedInJobs) > 0 {
+				jobsMutex.Lock()
+				allJobs = append(allJobs, linkedInJobs...)
+				jobsMutex.Unlock()
+			}
+		}()
+	}
 
-				pageJobs := scrapeLinkedInPage(pageNum, description, city, titleKeyword, remoteOnly, internshipsOnly, debug)
-				
-				if len(pageJobs) > 0 {
-					jobsMutex.Lock()
-					jobs = append(jobs, pageJobs...)
-					progress.mu.Lock()
-					progress.FoundJobs += len(pageJobs)
-					progress.JobBar.SetTotal(int64(progress.FoundJobs))
-					progress.mu.Unlock()
-					jobsMutex.Unlock()
-				}
-				
-				progress.PageBar.Increment()
+	// Scrape Greenhouse jobs if requested
+	if source == "" || source == "greenhouse" {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			greenhouseJobs, err := scrapeGreenhouse(description, pages, debug, proxyURL, progress)
+			if err == nil && len(greenhouseJobs) > 0 {
+				jobsMutex.Lock()
+				allJobs = append(allJobs, greenhouseJobs...)
+				jobsMutex.Unlock()
+			}
+		}()
+	}
+
+	// Scrape Lever jobs if requested
+	if source == "" || source == "lever" {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			leverJobs, err := scrapeLever(description, pages, debug, proxyURL, progress)
+			if err == nil && len(leverJobs) > 0 {
+				jobsMutex.Lock()
+				allJobs = append(allJobs, leverJobs...)
+				jobsMutex.Unlock()
 			}
 		}()
 	}
 
 	wg.Wait()
 
-	// Update job progress bar total
-	progress.JobBar.SetTotal(int64(progress.FoundJobs))
-
-	// Process all jobs concurrently using the new batch processor
-	if len(jobs) > 0 {
-		processBatchJobs(jobs, debug, progress.JobBar)
+	if len(allJobs) > 0 {
+		processBatchJobs(allJobs, debug, progress.JobBar)
 	}
 
-	return jobs, nil
+	return allJobs, nil
 }
 
 func addRandomQueryParams(baseURL string) string {
@@ -372,7 +869,7 @@ func randomString(n int) string {
 	return string(b)
 }
 
-func scrapeLinkedInPage(pageNum int, description, city, titleKeyword string, remoteOnly, internshipsOnly, debug bool) []SalaryInfo {
+func scrapeLinkedInPage(pageNum int, description, city, titleKeyword string, remoteOnly, internshipsOnly, debug bool, proxyURL string) []SalaryInfo {
 	var pageJobs []SalaryInfo
 	searchTerm := description
 	if description == "" {
@@ -397,7 +894,7 @@ func scrapeLinkedInPage(pageNum int, description, city, titleKeyword string, rem
 			time.Sleep(backoff)
 		}
 
-		client := createHTTPClient()
+		client := createHTTPClient(proxyURL)
 		req, err := http.NewRequest("GET", linkedInURL, nil)
 		if err != nil {
 			continue
@@ -446,6 +943,7 @@ func scrapeLinkedInPage(pageNum int, description, city, titleKeyword string, rem
 					Company:  strings.TrimSpace(company),
 					Location: strings.TrimSpace(location),
 					URL:      strings.TrimSpace(link),
+					Source:   "linkedin",
 				})
 			}
 		})
@@ -562,6 +1060,57 @@ func getRandomUserAgent() string {
 	return userAgents[rand.Intn(len(userAgents))]
 }
 
+func scrapeLinkedInPages(description, city, titleKeyword string, remoteOnly, internshipsOnly bool, pages int, debug bool, progress *ScrapeProgress, proxyURL string) ([]SalaryInfo, error) {
+	var jobs []SalaryInfo
+	var jobsMutex sync.Mutex
+
+	// Create a channel for page processing with buffer
+	pageChan := make(chan int, pages)
+	for i := 0; i < pages; i++ {
+		pageChan <- i
+	}
+	close(pageChan)
+
+	var wg sync.WaitGroup
+	// Process pages concurrently with limited workers
+	pageWorkers := 5
+	for worker := 0; worker < pageWorkers; worker++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			
+			for pageNum := range pageChan {
+				if pageNum > 0 {
+					time.Sleep(minDelay)
+				}
+
+				pageJobs := scrapeLinkedInPage(pageNum, description, city, titleKeyword, remoteOnly, internshipsOnly, debug, proxyURL)
+				
+				if len(pageJobs) > 0 {
+					jobsMutex.Lock()
+					jobs = append(jobs, pageJobs...)
+					jobsMutex.Unlock()
+				}
+				
+				progress.PageBar.Increment()
+			}
+		}()
+	}
+
+	wg.Wait()
+	return jobs, nil
+}
+
+func isValidSource(source string) bool {
+	validSources := map[string]bool{
+		"lever": true,
+		"linkedin": true,
+		"greenhouse": true,
+		"": true,  // empty string means all sources
+	}
+	return validSources[strings.ToLower(source)]
+}
+
 func main() {
 	description := flag.String("d", "", "Job characteristic or keyword to search for in the job description on LinkedIn")
 	city := flag.String("l", "United States", "City name to search for jobs on LinkedIn, or 'United States' for nationwide search")
@@ -569,12 +1118,17 @@ func main() {
 	remoteOnly := flag.Bool("r", false, "Include only remote jobs in the search results")
 	internshipsOnly := flag.Bool("internships", false, "Include only internships in the search results")
 	silence := flag.Bool("s", false, "Silence the banner")
+	noBanner := flag.Bool("nobanner", false, "Silence the banner (alias for -s)")
 	pages := flag.Int("p", 5, "Number of pages to search (default: 5)")
 	debug := flag.Bool("debug", false, "Enable debug output")
 	table := flag.Bool("table", false, "Re-organize output into a table in ascending order based on median salary")
+	source := flag.String("source", "", "Filter jobs by source (lever|linkedin|greenhouse)")
+	proxy := flag.String("proxy", "", "Proxy URL (e.g., http://proxy:port)")
 
 	flag.Usage = func() {
-		printBanner(*silence)
+		if !*silence && !*noBanner {
+			printBanner(false)
+		}
 		fmt.Println("Usage:")
 		flag.PrintDefaults()
 	}
@@ -582,18 +1136,33 @@ func main() {
 	flag.Parse()
 
 	if *description == "" && *titleKeyword == "" {
-		//printBanner(*silence)
-		flag.Usage()
-		fmt.Println("\nPlease provide a job title keyword to search for with -t, or a job description keyword with -d.")
-		os.Exit(0) 
+			flag.Usage()
+			fmt.Println("\nPlease provide a job title keyword to search for with -t, or a job description keyword with -d.")
+			os.Exit(0) 
 	}
 
-	if !*silence {
-		printBanner(*silence)
+	// Use either -s or -nobanner to silence the banner
+	if !*silence && !*noBanner {
+		printBanner(false)
+	}
+
+	// Validate source if provided
+	if *source != "" && !isValidSource(*source) {
+		fmt.Println("Invalid source. Must be one of: lever, linkedin, greenhouse")
+		os.Exit(1)
+	}
+
+	// Validate proxy URL if provided
+	if *proxy != "" {
+		_, err := url.Parse(*proxy)
+		if err != nil {
+			fmt.Printf("Invalid proxy URL: %v\n", err)
+			os.Exit(1)
+		}
 	}
 
 	// Pull the job listings based on the provided arguments
-	jobs, err := scrapeLinkedIn(*description, *city, *titleKeyword, *remoteOnly, *internshipsOnly, *pages, *debug)
+	jobs, err := scrapeLinkedIn(*description, *city, *titleKeyword, *remoteOnly, *internshipsOnly, *pages, *debug, *proxy, *source)
 	if err != nil {
 		fmt.Println("Error scraping LinkedIn:", err)
 		return
@@ -602,6 +1171,17 @@ func main() {
 	if len(jobs) == 0 {
 		fmt.Println("No jobs found matching your criteria.")
 		return
+	}
+
+	// Filter jobs by source if specified
+	if *source != "" {
+		filteredJobs := []SalaryInfo{}
+		for _, job := range jobs {
+			if strings.EqualFold(job.Source, *source) {
+				filteredJobs = append(filteredJobs, job)
+			}
+		}
+		jobs = filteredJobs
 	}
 
 	if *table {
@@ -622,11 +1202,12 @@ func main() {
 		})
 
 		// Print the table header
-		fmt.Printf("\033[1m%-25s %-25s %-50s %-50s\033[0m\n", "Company Name", "Median Salary", "Job Title", "Job URL")
+		fmt.Printf("\033[1m%-25s %-25s %-50s %-15s %-50s\033[0m\n", 
+			"Company Name", "Median Salary", "Job Title", "Source", "Job URL")
 		for _, job := range filteredJobs {
 			coloredSalary := colorizeSalary(job.LevelSalary)
-			fmt.Printf("\033[35m%-25s\033[0m %-25s %-50s %-50s\n",
-				job.Company, coloredSalary, job.Title, job.URL)
+			fmt.Printf("\033[35m%-25s\033[0m %-25s %-50s %-15s %-50s\n",
+				job.Company, coloredSalary, job.Title, job.Source, job.URL)
 		}
 	} else {
 		// Default output logic
@@ -634,6 +1215,7 @@ func main() {
 			fmt.Printf("Company: \033[35m%s\033[0m\n", job.Company)
 			fmt.Printf("Job Title: \033[35m%s\033[0m\n", job.Title)
 			fmt.Printf("Location: \033[35m%s\033[0m\n", job.Location)
+//			fmt.Printf("Source: \033[36m%s\033[0m\n", job.Source)
 			if job.SalaryRange != "" {
 				fmt.Printf("Salary Range: \033[32m%s\033[0m\n", job.SalaryRange)
 			} else {
