@@ -2,11 +2,8 @@ name: Build and Push Docker Images
 
 on:
   push:
-    branches:
-      - main
-  workflow_dispatch:
-  schedule:
-    - cron: "0 0 * * 0"  
+    tags:
+      - 'v*'
 
 jobs:
   build-and-push:
