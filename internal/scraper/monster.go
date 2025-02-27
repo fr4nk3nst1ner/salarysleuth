@@ -24,7 +24,7 @@ const (
 )
 
 // ScrapeMonster scrapes job listings from Monster.com
-func ScrapeMonster(description string, pages int, debug bool, proxyURL string, progress *models.ScrapeProgress) ([]models.SalaryInfo, error) {
+func ScrapeMonster(description string, pages int, debug bool, proxyURL string, progress *models.ScrapeProgress, topPayOnly bool) ([]models.SalaryInfo, error) {
 	httpClient := client.CreateProxyHTTPClient(proxyURL)
 	var results []models.SalaryInfo
 
@@ -59,6 +59,14 @@ func ScrapeMonster(description string, pages int, debug bool, proxyURL string, p
 			company := strings.TrimSpace(s.Find("div.company").Text())
 			location := strings.TrimSpace(s.Find("div.location").Text())
 			jobURL, _ := s.Find("a[data-bypass='true']").Attr("href")
+			
+			// Check if company is in top paying list if filter is enabled
+			if topPayOnly && !utils.IsTopPayingCompany(company, debug) {
+				if debug {
+					fmt.Printf("Skipping %s - not in top paying companies list\n", company)
+				}
+				return
+			}
 			
 			// Extract salary information
 			salary := "Not Available"

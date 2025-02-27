@@ -55,7 +55,7 @@ func getIndeedHeaders() http.Header {
 }
 
 // ScrapeIndeed scrapes job listings from Indeed.com
-func ScrapeIndeed(description string, pages int, debug bool, proxyURL string, progress *models.ScrapeProgress) ([]models.SalaryInfo, error) {
+func ScrapeIndeed(description string, pages int, debug bool, proxyURL string, progress *models.ScrapeProgress, topPayOnly bool) ([]models.SalaryInfo, error) {
 	httpClient := client.CreateProxyHTTPClient(proxyURL)
 	var results []models.SalaryInfo
 
@@ -106,6 +106,14 @@ func ScrapeIndeed(description string, pages int, debug bool, proxyURL string, pr
 			company := job.Get("company").String()
 			location := job.Get("location").String()
 			jobKey := job.Get("jobkey").String()
+			
+			// Check if company is in top paying list if filter is enabled
+			if topPayOnly && !utils.IsTopPayingCompany(company, debug) {
+				if debug {
+					fmt.Printf("Skipping %s - not in top paying companies list\n", company)
+				}
+				continue
+			}
 			
 			// Build job URL
 			jobURL := fmt.Sprintf("%s/viewjob?jk=%s", indeedMobileURL, jobKey)

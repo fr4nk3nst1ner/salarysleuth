@@ -57,7 +57,7 @@ func getLinkedInHeaders(referer string) http.Header {
 }
 
 // ScrapeLinkedIn scrapes job listings from LinkedIn
-func ScrapeLinkedIn(description, city, titleKeyword string, remoteOnly, internshipsOnly bool, pages int, debug bool, proxyURL string, progress *models.ScrapeProgress) ([]models.SalaryInfo, error) {
+func ScrapeLinkedIn(description, city, titleKeyword string, remoteOnly, internshipsOnly, topPayOnly bool, pages int, debug bool, proxyURL string, progress *models.ScrapeProgress) ([]models.SalaryInfo, error) {
 	// Create HTTP client with cookie support
 	jar, err := cookiejar.New(nil)
 	if err != nil {
@@ -73,21 +73,6 @@ func ScrapeLinkedIn(description, city, titleKeyword string, remoteOnly, internsh
 	errorsChan := make(chan error, pages)
 	semaphore := make(chan struct{}, maxConcurrent)
 
-	// Build base search parameters
-	params := url.Values{}
-	params.Add("keywords", description)
-	if city != "" {
-		params.Add("location", city)
-	}
-	if remoteOnly {
-		params.Add("f_WT", "2") // LinkedIn's remote work filter
-	}
-	params.Add("position", "1")
-	params.Add("pageNum", "0")
-	params.Add("f_TPR", "") // Anytime 
-	params.Add("f_E", "") // Experience level: All 
-	params.Add("sortBy", "DD") // Sort by date
-
 	var wg sync.WaitGroup
 	for page := 0; page < pages; page++ {
 		wg.Add(1)
@@ -96,8 +81,22 @@ func ScrapeLinkedIn(description, city, titleKeyword string, remoteOnly, internsh
 			semaphore <- struct{}{} // Acquire semaphore
 			defer func() { <-semaphore }() // Release semaphore
 
+			// Create new params for this goroutine
+			pageParams := url.Values{}
+			pageParams.Add("keywords", description)
+			if city != "" {
+				pageParams.Add("location", city)
+			}
+			if remoteOnly {
+				pageParams.Add("f_WT", "2") // LinkedIn's remote work filter
+			}
+			pageParams.Add("position", "1")
+			pageParams.Add("pageNum", "0")
+			pageParams.Add("f_TPR", "") // Anytime 
+			pageParams.Add("f_E", "") // Experience level: All 
+			pageParams.Add("sortBy", "DD") // Sort by date
+
 			// Add start parameter for pagination
-			pageParams := params
 			start := pageNum * jobsPerPage
 			if start > 0 {
 				pageParams.Set("start", fmt.Sprintf("%d", start))
@@ -158,7 +157,7 @@ func ScrapeLinkedIn(description, city, titleKeyword string, remoteOnly, internsh
 				location := strings.TrimSpace(s.Find("span.job-search-card__location").Text())
 				jobURL, _ := s.Find("a.base-card__full-link").Attr("href")
 
-				if !utils.IsValidJob(title, location, titleKeyword, remoteOnly, internshipsOnly) {
+				if !utils.IsValidJob(title, location, titleKeyword, remoteOnly, internshipsOnly, topPayOnly, company) {
 					return
 				}
 
