@@ -3,13 +3,13 @@ package utils
 import (
 	"fmt"
 	"math/rand"
+	"net/http"
 	"net/url"
 	"regexp"
-	"strings"
-	"time"
-	"net/http"
-	"sync"
 	"strconv"
+	"strings"
+	"sync"
+	"time"
 
 	"github.com/PuerkitoBio/goquery"
 	"github.com/fr4nk3nst1ner/salarysleuth/internal/models"
@@ -24,10 +24,15 @@ const (
 
 var userAgent = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36"
 
-// Cache for Levels.fyi salary data to avoid repeated requests
+// Cache for Levels.fyi salary data
 var (
 	salaryCache     = make(map[string]string)
 	salaryCacheMux  sync.RWMutex
+	salaryFetchTime time.Time
+	salaryCacheTTL  = 24 * time.Hour // Cache for 24 hours
+
+	// The top companies cache variables have been moved to top_paying_companies.go
+	
 	levelsFyiClient = &http.Client{
 		Timeout: 10 * time.Second,
 		Transport: &http.Transport{
@@ -37,14 +42,6 @@ var (
 			DisableCompression:  false,
 		},
 	}
-)
-
-// Cache for top paying companies to avoid repeated fetches
-var (
-	topCompaniesCache     = make(map[string]bool)
-	topCompaniesCacheMux sync.RWMutex
-	lastFetchTime        time.Time
-	cacheDuration        = 24 * time.Hour // Refresh cache every 24 hours
 )
 
 // AddRandomQueryParams adds random query parameters to a URL to avoid caching
@@ -217,6 +214,15 @@ func GetSalaryFromLevelsFyi(companyName string, debug bool) (string, error) {
 
 	// Clean and format company name for URL
 	cleanName := strings.ToLower(strings.ReplaceAll(companyName, " ", "-"))
+	
+	// Special case for Meta - use Facebook instead for levels.fyi
+	if strings.ToLower(companyName) == "meta" {
+		cleanName = "facebook"
+		if debug {
+			fmt.Printf("Company is Meta, using Facebook for levels.fyi lookup\n")
+		}
+	}
+	
 	url := fmt.Sprintf("https://www.levels.fyi/companies/%s/salaries/", cleanName)
 
 	if debug {
@@ -326,455 +332,4 @@ func ProcessWithLevelsFyi(jobs []models.SalaryInfo, debug bool) {
 	}
 }
 
-// FetchTopPayingCompanies fetches the list of top paying companies from levels.fyi
-func FetchTopPayingCompanies(debug bool) error {
-	topCompaniesCacheMux.Lock()
-	defer topCompaniesCacheMux.Unlock()
-
-	// Check if cache is still valid
-	if time.Since(lastFetchTime) < cacheDuration && len(topCompaniesCache) > 0 {
-		if debug {
-			fmt.Printf("\n[DEBUG] Using cached top companies list (%d companies)\n", len(topCompaniesCache))
-			fmt.Println("[DEBUG] Cached companies:")
-			for company := range topCompaniesCache {
-				fmt.Printf("[DEBUG] - %s\n", company)
-			}
-		}
-		return nil
-	}
-
-	if debug {
-		fmt.Printf("\n[DEBUG] Cache expired or empty, fetching fresh top companies data\n")
-	}
-
-	// List of known top-paying companies and their profile URLs
-	topCompanyProfiles := []struct {
-		Name string
-		URL  string
-	}{
-		{"Google", "https://www.levels.fyi/companies/google/salaries"},
-		{"Meta", "https://www.levels.fyi/companies/meta/salaries"},
-		{"Apple", "https://www.levels.fyi/companies/apple/salaries"},
-		{"Microsoft", "https://www.levels.fyi/companies/microsoft/salaries"},
-		{"Amazon", "https://www.levels.fyi/companies/amazon/salaries"},
-		{"Netflix", "https://www.levels.fyi/companies/netflix/salaries"},
-		{"Uber", "https://www.levels.fyi/companies/uber/salaries"},
-		{"Lyft", "https://www.levels.fyi/companies/lyft/salaries"},
-		{"Airbnb", "https://www.levels.fyi/companies/airbnb/salaries"},
-		{"Stripe", "https://www.levels.fyi/companies/stripe/salaries"},
-		{"Coinbase", "https://www.levels.fyi/companies/coinbase/salaries"},
-		{"Robinhood", "https://www.levels.fyi/companies/robinhood/salaries"},
-		{"Snap", "https://www.levels.fyi/companies/snap/salaries"},
-		{"Twitter", "https://www.levels.fyi/companies/twitter/salaries"},
-		{"LinkedIn", "https://www.levels.fyi/companies/linkedin/salaries"},
-		{"Square", "https://www.levels.fyi/companies/square/salaries"},
-		{"Pinterest", "https://www.levels.fyi/companies/pinterest/salaries"},
-		{"Dropbox", "https://www.levels.fyi/companies/dropbox/salaries"},
-		{"Salesforce", "https://www.levels.fyi/companies/salesforce/salaries"},
-		{"Adobe", "https://www.levels.fyi/companies/adobe/salaries"},
-		{"Oracle", "https://www.levels.fyi/companies/oracle/salaries"},
-		{"Intel", "https://www.levels.fyi/companies/intel/salaries"},
-		{"Nvidia", "https://www.levels.fyi/companies/nvidia/salaries"},
-		{"AMD", "https://www.levels.fyi/companies/amd/salaries"},
-		{"Palantir", "https://www.levels.fyi/companies/palantir/salaries"},
-		{"Databricks", "https://www.levels.fyi/companies/databricks/salaries"},
-		{"Snowflake", "https://www.levels.fyi/companies/snowflake/salaries"},
-		{"ByteDance", "https://www.levels.fyi/companies/bytedance/salaries"},
-		{"Instacart", "https://www.levels.fyi/companies/instacart/salaries"},
-		{"DoorDash", "https://www.levels.fyi/companies/doordash/salaries"},
-	}
-
-	newCache := make(map[string]bool)
-	totalCompanies := 0
-
-	for _, company := range topCompanyProfiles {
-		if debug {
-			fmt.Printf("\n[DEBUG] Processing company: %s\n", company.Name)
-		}
-
-		// Normalize company name
-		companyName := strings.ToLower(company.Name)
-		companyName = strings.ReplaceAll(companyName, " ", "")
-		companyName = strings.ReplaceAll(companyName, ".", "")
-		companyName = strings.ReplaceAll(companyName, ",", "")
-		companyName = strings.ReplaceAll(companyName, "inc", "")
-		companyName = strings.ReplaceAll(companyName, "corp", "")
-		companyName = strings.ReplaceAll(companyName, "technologies", "")
-		companyName = strings.ReplaceAll(companyName, "technology", "")
-
-		if !newCache[companyName] {
-			newCache[companyName] = true
-			totalCompanies++
-			if debug {
-				fmt.Printf("[DEBUG] Added %s to top companies list\n", companyName)
-			}
-		}
-	}
-
-	// Update cache if we found any companies
-	if len(newCache) > 0 {
-		topCompaniesCache = newCache
-		lastFetchTime = time.Now()
-		if debug {
-			fmt.Printf("\n[DEBUG] Successfully updated top companies cache with %d total companies\n", totalCompanies)
-			fmt.Println("[DEBUG] Final list of all companies:")
-			for company := range topCompaniesCache {
-				fmt.Printf("[DEBUG] - %s\n", company)
-			}
-		}
-	} else {
-		if debug {
-			fmt.Printf("\n[DEBUG] No companies found, using default list\n")
-		}
-		// If no companies found, use a minimal default list
-		topCompaniesCache = map[string]bool{
-			"netflix": true,
-			"google": true,
-			"meta": true,
-			"apple": true,
-			"microsoft": true,
-			"amazon": true,
-		}
-		if debug {
-			fmt.Printf("\n[DEBUG] Using default list:\n")
-			for company := range topCompaniesCache {
-				fmt.Printf("[DEBUG] - %s\n", company)
-			}
-		}
-	}
-
-	return nil
-}
-
-// IsTopPayingCompany checks if a company is in the top paying companies list from levels.fyi
-func IsTopPayingCompany(company string, debug bool) bool {
-	// Ensure we have the latest top companies data
-	if err := FetchTopPayingCompanies(debug); err != nil {
-		// If fetch fails, fall back to existing cache
-		if len(topCompaniesCache) == 0 {
-			// If no cache exists, use a minimal default list
-			topCompaniesCacheMux.Lock()
-			topCompaniesCache = map[string]bool{
-				"google":    true,
-				"meta":      true,
-				"amazon":    true,
-				"microsoft": true,
-				"apple":     true,
-				"netflix":   true,
-			}
-			topCompaniesCacheMux.Unlock()
-		}
-	}
-
-	// Normalize company name
-	originalCompany := company
-	company = strings.ToLower(strings.TrimSpace(company))
-	company = strings.ReplaceAll(company, " ", "")
-	company = strings.ReplaceAll(company, ".", "")
-	company = strings.ReplaceAll(company, ",", "")
-	company = strings.ReplaceAll(company, "inc", "")
-	company = strings.ReplaceAll(company, "corp", "")
-	company = strings.ReplaceAll(company, "technologies", "")
-	company = strings.ReplaceAll(company, "technology", "")
-
-	// Handle special cases and common variations
-	companyVariations := map[string]string{
-		// FAANG/MANGA Companies
-		"fb": "meta",
-		"facebook": "meta",
-		"alphabet": "google",
-		"block": "square",
-		"x": "twitter",
-		"xcom": "twitter",
-		"metaplatforms": "meta",
-		"twitterinc": "twitter",
-		"blockformerlysquare": "square",
-		"metaplatformsinc": "meta",
-		"alphabetinc": "google",
-		"microsoftcorporation": "microsoft",
-		"appletechnology": "apple",
-		"aws": "amazon",
-		"googlecloud": "google",
-		"microsoftazure": "microsoft",
-		"awscloud": "amazon",
-		"metaplatform": "meta",
-		"facebookmeta": "meta",
-		"tiktokbytedance": "bytedance",
-		"snapchatinc": "snapchat",
-		"goldmansachsgroup": "goldman sachs",
-		"goldmansachs": "goldman sachs",
-		"jpmorganchase": "jpmorgan",
-		"morganstanleygroup": "morgan stanley",
-		"bankofamericacorp": "bank of america",
-		"bofagroup": "bank of america",
-		"citigroup": "citi",
-		"wellsfargobank": "wells fargo",
-		"capitalonefinancial": "capital one",
-		"amazonwebservices": "amazon",
-		"amazoncom": "amazon",
-		"amazoninc": "amazon",
-		"amazontech": "amazon",
-		"amazontechnology": "amazon",
-		"amazonwebservicesinc": "amazon",
-		"awsinc": "amazon",
-		"microsoftinc": "microsoft",
-		"microsofttech": "microsoft",
-		"microsofttechnology": "microsoft",
-		"microsoftcorp": "microsoft",
-		"microsoftazurecloud": "microsoft",
-		"googleinc": "google",
-		"googletech": "google",
-		"googletechnology": "google",
-		"googlellc": "google",
-		"googleai": "google",
-		"appleinc": "apple",
-		"appletech": "apple",
-		"appletechnologies": "apple",
-		"applecorp": "apple",
-		"applecomputer": "apple",
-		"metainc": "meta",
-		"metatech": "meta",
-		"metatechnology": "meta",
-		"metacorp": "meta",
-		"facebookinc": "meta",
-		"facebooktech": "meta",
-		"netflixinc": "netflix",
-		"netflixtech": "netflix",
-		"netflixtechnology": "netflix",
-		"netflixcorp": "netflix",
-		"nvidiacorp": "nvidia",
-		"nvidiainc": "nvidia",
-		"nvidiatech": "nvidia",
-		"nvidiatechnology": "nvidia",
-		"amdcorp": "amd",
-		"amdinc": "amd",
-		"amdtech": "amd",
-		"amdtechnology": "amd",
-		"intelcorp": "intel",
-		"intelinc": "intel",
-		"inteltech": "intel",
-		"inteltechnology": "intel",
-		"salesforceinc": "salesforce",
-		"salesforcecom": "salesforce",
-		"salesforcetech": "salesforce",
-		"salesforcetechnology": "salesforce",
-		"vmwareinc": "vmware",
-		"vmwaretech": "vmware",
-		"vmwaretechnology": "vmware",
-		"ibmcorp": "ibm",
-		"ibminc": "ibm",
-		"ibmtech": "ibm",
-		"ibmtechnology": "ibm",
-		"ciscocorp": "cisco",
-		"ciscoinc": "cisco",
-		"ciscotech": "cisco",
-		"ciscotechnology": "cisco",
-		"qualcomminc": "qualcomm",
-		"qualcommtech": "qualcomm",
-		"qualcommtechnology": "qualcomm",
-		"intuitinc": "intuit",
-		"intuittech": "intuit",
-		"intuittechnology": "intuit",
-		"workdayinc": "workday",
-		"workdaytech": "workday",
-		"workdaytechnology": "workday",
-		"servicenowcorp": "servicenow",
-		"servicenowtech": "servicenow",
-		"autodesktech": "autodesk",
-		"autodeskinc": "autodesk",
-		"autodesktechnology": "autodesk",
-		"hpinc": "hp",
-		"hptech": "hp",
-		"hptechnology": "hp",
-		"hewlettpackard": "hp",
-		"dellinc": "dell",
-		"delltech": "dell",
-		"delltechnology": "dell",
-		"dellcomputer": "dell",
-		"broadcomcorp": "broadcom",
-		"broadcominc": "broadcom",
-		"broadcomtech": "broadcom",
-		"broadcomtechnology": "broadcom",
-		"texasinstrumentsinc": "texas instruments",
-		"titech": "texas instruments",
-		"titechnology": "texas instruments",
-		"stripeinc": "stripe",
-		"stripetech": "stripe",
-		"stripetechnology": "stripe",
-		"plaidinc": "plaid",
-		"plaidtech": "plaid",
-		"plaidtechnology": "plaid",
-		"databricksinc": "databricks",
-		"databrickstech": "databricks",
-		"databrickstechnology": "databricks",
-		"snowflakeinc": "snowflake",
-		"snowflaketech": "snowflake",
-		"snowflaketechnology": "snowflake",
-		"palantirinc": "palantir",
-		"palantirtech": "palantir",
-		"palantirtechnology": "palantir",
-		"robloxcorp": "roblox",
-		"robloxinc": "roblox",
-		"robloxtech": "roblox",
-		"coinbaseinc": "coinbase",
-		"coinbasetech": "coinbase",
-		"coinbasetechnology": "coinbase",
-		"robinhoodinc": "robinhood",
-		"robinhoodtech": "robinhood",
-		"robinhoodtechnology": "robinhood",
-		"affirminc": "affirm",
-		"affirmtech": "affirm",
-		"affirmtechnology": "affirm",
-		"chimeinc": "chime",
-		"chimetech": "chime",
-		"chimetechnology": "chime",
-		"instacartinc": "instacart",
-		"instacarttech": "instacart",
-		"instacarttechnology": "instacart",
-		"doordashcorp": "doordash",
-		"doordashinc": "doordash",
-		"doordashtech": "doordash",
-		"airbnbinc": "airbnb",
-		"airbnbtech": "airbnb",
-		"airbnbtechnology": "airbnb",
-		"uberinc": "uber",
-		"ubertech": "uber",
-		"ubertechnology": "uber",
-		"lyftinc": "lyft",
-		"lyfttech": "lyft",
-		"lyfttechnology": "lyft",
-		"bytedanceinc": "bytedance",
-		"bytedancetech": "bytedance",
-		"bytedancetechnology": "bytedance",
-		"snaptech": "snap",
-		"snaptechnology": "snap",
-		"pinterestinc": "pinterest",
-		"pinteresttech": "pinterest",
-		"pinteresttechnology": "pinterest",
-		"squareinc": "square",
-		"squaretech": "square",
-		"squaretechnology": "square",
-		"dropboxinc": "dropbox",
-		"dropboxtech": "dropbox",
-		"dropboxtechnology": "dropbox",
-		"twilioinc": "twilio",
-		"twiliotech": "twilio",
-		"twiliotechnology": "twilio",
-		"asanainc": "asana",
-		"asanatech": "asana",
-		"asanatechnology": "asana",
-		"figmainc": "figma",
-		"figmatech": "figma",
-		"figmatechnology": "figma",
-		"notioninc": "notion",
-		"notiontech": "notion",
-		"notiontechnology": "notion",
-		"airtableinc": "airtable",
-		"airtabletech": "airtable",
-		"airtabletechnology": "airtable",
-		"discordinc": "discord",
-		"discordtech": "discord",
-		"discordtechnology": "discord",
-		"gitlabinc": "gitlab",
-		"gitlabtech": "gitlab",
-		"gitlabtechnology": "gitlab",
-		"githubinc": "github",
-		"githubtech": "github",
-		"githubtechnology": "github",
-		"teslainc": "tesla",
-		"teslatech": "tesla",
-		"teslatechnology": "tesla",
-		"teslacorp": "tesla",
-		"spacexcorp": "spacex",
-		"spacextech": "spacex",
-		"spacextechnology": "spacex",
-		"rivianinc": "rivian",
-		"riviantech": "rivian",
-		"riviantechnology": "rivian",
-		"lucidinc": "lucid",
-		"lucidtech": "lucid",
-		"lucidtechnology": "lucid",
-		"arminc": "arm",
-		"armtech": "arm",
-		"armtechnology": "arm",
-		"samsunginc": "samsung",
-		"samsungtech": "samsung",
-		"samsungtechnology": "samsung",
-		"microninc": "micron",
-		"microntech": "micron",
-		"microntechnology": "micron",
-		"appliedmaterialsinc": "applied materials",
-		"appliedmaterialstech": "applied materials",
-		"lamresearchinc": "lam research",
-		"lamresearchtech": "lam research",
-		"asmlholding": "asml",
-		"asmlinc": "asml",
-		"asmltech": "asml",
-		"mongodbinc": "mongodb",
-		"mongodbtech": "mongodb",
-		"mongodbtechnology": "mongodb",
-		"datadoginc": "datadog",
-		"datadogtech": "datadog",
-		"datadogtechnology": "datadog",
-		"splunkinc": "splunk",
-		"splunktech": "splunk",
-		"splunktechnology": "splunk",
-		"oktainc": "okta",
-		"oktatech": "okta",
-		"oktatechnology": "okta",
-		"crowdstrikeinc": "crowdstrike",
-		"crowdstriketech": "crowdstrike",
-		"crowdstriketechnology": "crowdstrike",
-		"paloaltoinc": "palo alto networks",
-		"paloaltotech": "palo alto networks",
-		"zscalerinc": "zscaler",
-		"zscalertech": "zscaler",
-		"zscalertechnology": "zscaler",
-		"fortinettechnology": "fortinet",
-		"cloudflare": "cloudflare",
-		"fastlyinc": "fastly",
-		"fastlytech": "fastly",
-		"fastlytechnology": "fastly",
-		"digitaloceancorp": "digitalocean",
-		"digitaloceantech": "digitalocean",
-		"hashicorpinc": "hashicorp",
-		"hashicorptech": "hashicorp",
-		"hashicorptechnology": "hashicorp",
-		"confluentinc": "confluent",
-		"confluenttech": "confluent",
-		"confluenttechnology": "confluent",
-		"elasticinc": "elastic",
-		"elastictech": "elastic",
-		"elastictechnology": "elastic",
-		"newrelicinc": "new relic",
-		"newrelictech": "new relic",
-		"docusigninc": "docusign",
-		"docusigntech": "docusign",
-		"docusigntechnology": "docusign",
-		"zoominc": "zoom",
-		"zoomtech": "zoom",
-		"zoomtechnology": "zoom",
-		"slackinc": "slack",
-		"slacktech": "slack",
-		"slacktechnology": "slack",
-	}
-
-	if normalizedCompany, exists := companyVariations[company]; exists {
-		if debug {
-			fmt.Printf("[DEBUG] Company name variation found: %s -> %s\n", originalCompany, normalizedCompany)
-		}
-		company = normalizedCompany
-	}
-
-	topCompaniesCacheMux.RLock()
-	defer topCompaniesCacheMux.RUnlock()
-	isTopPaying := topCompaniesCache[company]
-	if debug {
-		if isTopPaying {
-			fmt.Printf("[DEBUG] Found top paying company: %s (normalized from: %s)\n", company, originalCompany)
-		} else {
-			fmt.Printf("[DEBUG] Company not in top paying list: %s (normalized from: %s)\n", company, originalCompany)
-		}
-	}
-	return isTopPaying
-}
+// The FetchTopPayingCompanies and IsTopPayingCompany functions have been moved to top_paying_companies.go
