@@ -14,7 +14,7 @@ salarysleuth [-description job_characteristic] [-city location] [-title title_ke
 * `-title title_keyword` - Optional: Keyword to search for in job titles
 * `-pages num_pages` - Number of pages to scrape (default: 1)
 * `-source source_name` - Source to scrape (linkedin, greenhouse, lever, monster, indeed). If not specified, searches LinkedIn.
-* `-remote` - Only show remote positions
+* `-remote` - Only show remote positions (includes jobs with "remote", "work from home", or "United States" location)
 * `-internships` - Only show jobs with "intern" or "internship" in the title
 * `-top-pay` - Only show jobs from companies listed in levels.fyi's top paying companies list
 * `-top-paying-companies` - Show the list of top paying companies from levels.fyi
@@ -93,8 +93,9 @@ go build -o salarysleuth
 - [x] Add `-internships` flag to return only internships
 - [x] Add `-top-paying-companies` flag to show top paying companies from levels.fyi
 - [x] Add `-table` flag to display results in table format
-- [ ] Support multiple job sources (LinkedIn, Greenhouse, Lever, Monster, Indeed)
+- [x] Support multiple job sources (LinkedIn, Greenhouse, Lever, Monster, Indeed)
 - [x] Add `-examples` flag to display usage examples
+- [x] Improve remote job detection to include jobs with "United States" location
 - [ ] Add jobs.smartrecruiters.com and builtin.com as sources for more job returns
 - [ ] Optimize speed and make searches take less time, particularly for higher page searches
 - [ ] Finish search engine implementation

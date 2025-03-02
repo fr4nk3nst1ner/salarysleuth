@@ -88,7 +88,20 @@ func ScrapeLinkedIn(description, city, titleKeyword string, remoteOnly, internsh
 				pageParams.Add("location", city)
 			}
 			if remoteOnly {
-				pageParams.Add("f_WT", "2") // LinkedIn's remote work filter
+				// LinkedIn's remote work filter options:
+				// 1 = On-site
+				// 2 = Remote
+				// 3 = Hybrid
+				pageParams.Add("f_WT", "2") // Remote work filter
+				
+				// If no specific city is provided, search nationwide for remote jobs
+				if city == "" {
+					pageParams.Add("location", "United States")
+					// Add "remote" to keywords if not already included
+					if !strings.Contains(strings.ToLower(description), "remote") {
+						pageParams.Set("keywords", description+" remote")
+					}
+				}
 			}
 			pageParams.Add("position", "1")
 			pageParams.Add("pageNum", "0")
