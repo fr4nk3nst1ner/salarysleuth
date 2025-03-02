@@ -1,40 +1,70 @@
 # 💰 $alary $leuth 💰
-This is a Go program that checks the median salaries of software engineers for companies that have a job posting with a certain keyword in their job description. It searches LinkedIn for job postings and the levels.fyi website to retrieve salary information for a given company.
+Program that checks the median salaries of software engineers for companies that have a job posting with a certain keyword in their job description. It searches job boards like LinkedIn for job postings and uses levels.fyi to retrieve salary information for companies.
 
 ## Usage
 ```bash
-salarysleuth [-d | --description job_characteristic] [-l | --location location] [-t | --title title_keyword] [-r | --remote] [--internships] [--top-pay] [-s | --silence] [-h | --help]
+salarysleuth [-description job_characteristic] [-city location] [-title title_keyword] [-pages num_pages] 
+             [-source source_name] [-remote] [-internships] [-top-pay] [-top-paying-companies]
+             [-table] [-no-levels] [-proxy proxy_url] [-debug] [-examples] [-silence | -nobanner] [-help]
 ```
 
 ## Options
-* `-d job_characteristic`, `--description job_characteristic` - Job characteristic or keyword to search for in the job description on LinkedIn
-* `-l location`, `--location location` - City name to search for jobs on LinkedIn, or 'United States' for nationwide search (default: "United States")
-* `-t title_keyword`, `--title title_keyword` - Optional: Keyword to search for in job titles on LinkedIn
-* `-r`, `--remote` - Optional: Retrieve only remote jobs or jobs listed under "United States"
-* `--internships` - Optional: Retrieve only jobs with "intern" in the title
-* `--top-pay` - Optional: Only show jobs from companies listed in levels.fyi's top paying companies list
-* `-s`, `--silence` - Optional: Silence the banner
-* `-h`, `--help` - Optional. Displays the help menu.
+* `-description job_characteristic` - Job characteristic or keyword to search for in the job description
+* `-city location` - City name to search for jobs, or 'United States' for nationwide search
+* `-title title_keyword` - Optional: Keyword to search for in job titles
+* `-pages num_pages` - Number of pages to scrape (default: 1)
+* `-source source_name` - Source to scrape (linkedin, greenhouse, lever, monster, indeed). If not specified, searches LinkedIn.
+* `-remote` - Only show remote positions
+* `-internships` - Only show jobs with "intern" or "internship" in the title
+* `-top-pay` - Only show jobs from companies listed in levels.fyi's top paying companies list
+* `-top-paying-companies` - Show the list of top paying companies from levels.fyi
+* `-table` - Show results in table format (only jobs with Levels.fyi data)
+* `-no-levels` - Skip fetching salary data from Levels.fyi
+* `-proxy proxy_url` - Proxy URL to use for requests
+* `-debug` - Enable debug mode with verbose output
+* `-examples` - Display usage examples for the tool
+* `-silence` or `-nobanner` - Silence the banner
+* `-help` - Displays the help menu
 
 ## Examples
 - Search for remote jobs across the United States that mention "OSCP" in the job description:
 ```bash
-salarysleuth -d "OSCP" -r
+salarysleuth -description "OSCP" -remote
 ```
 
 - Search only for internships that include "Software Engineer" in the title:
 ```bash
-salarysleuth -d "Software Engineer" --internships
+salarysleuth -description "Software Engineer" -internships
 ```
 
 - Search for jobs in "San Francisco, CA" that mention "Metasploit" in the job title, and silence the banner:
 ```bash
-salarysleuth -d "Metasploit" -l "San Francisco, CA" -s
+salarysleuth -description "Metasploit" -city "San Francisco, CA" -silence
 ```
 
 - Search for jobs at top paying tech companies that mention "Python":
 ```bash
-salarysleuth -d "Python" --top-pay
+salarysleuth -description "Python" -top-pay
+```
+
+- Display the list of top paying companies according to levels.fyi:
+```bash
+salarysleuth -top-paying-companies
+```
+
+- Search for "Software Engineer" jobs across multiple pages with a proxy:
+```bash
+salarysleuth -description "Software Engineer" -pages 3 -proxy http://localhost:8080
+```
+
+- Search for jobs on Indeed and display results in table format:
+```bash
+salarysleuth -description "DevOps" -source indeed -table
+```
+
+- Display usage examples for the tool:
+```bash
+salarysleuth -examples
 ```
 
 ### Docker
@@ -53,14 +83,18 @@ docker run -it salarysleuth salarysleuth --help
 git clone https://github.com/fr4nk3nst1ner/salarysleuth.git
 cd salarysleuth
 go build -o salarysleuth
-./salarysleuth -h
+./salarysleuth -help
 ```
 
 ## To Do
 
 - [x] Return job titles in search results
 - [x] Create flag to return only remote jobs
-- [x] Add `--internships` flag to return only internships
+- [x] Add `-internships` flag to return only internships
+- [x] Add `-top-paying-companies` flag to show top paying companies from levels.fyi
+- [x] Add `-table` flag to display results in table format
+- [ ] Support multiple job sources (LinkedIn, Greenhouse, Lever, Monster, Indeed)
+- [x] Add `-examples` flag to display usage examples
 - [ ] Add jobs.smartrecruiters.com and builtin.com as sources for more job returns
 - [ ] Optimize speed and make searches take less time, particularly for higher page searches
 - [ ] Finish search engine implementation
