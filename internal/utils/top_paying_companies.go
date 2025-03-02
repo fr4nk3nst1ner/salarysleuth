@@ -1,8 +1,11 @@
 package utils
 
 import (
+	"encoding/json"
 	"fmt"
 	"net/http"
+	"os"
+	"path/filepath"
 	"regexp"
 	"sort"
 	"strings"
@@ -20,7 +23,36 @@ var (
 	topCompaniesCacheMux sync.Mutex
 	lastFetchTime        time.Time
 	cacheDuration        = 24 * time.Hour // Cache for 24 hours
+	
+	// Cache file path
+	cacheFilePath        string
 )
+
+// CacheData represents the structure of the cache file
+type CacheData struct {
+	Companies       map[string]bool   `json:"companies"`
+	OriginalNames   map[string]string `json:"original_names"`
+	LastFetchTime   time.Time         `json:"last_fetch_time"`
+}
+
+// init initializes the cache file path
+func init() {
+	// Get user's home directory
+	homeDir, err := os.UserHomeDir()
+	if err != nil {
+		// If we can't get the home directory, use a temporary directory
+		homeDir = os.TempDir()
+	}
+	
+	// Create .salarysleuth directory if it doesn't exist
+	cacheDir := filepath.Join(homeDir, ".salarysleuth")
+	if _, err := os.Stat(cacheDir); os.IsNotExist(err) {
+		os.Mkdir(cacheDir, 0755)
+	}
+	
+	// Set cache file path
+	cacheFilePath = filepath.Join(cacheDir, "top_companies_cache.json")
+}
 
 // FetchTopPayingCompaniesFromLevelsFyi fetches the list of top paying companies from levels.fyi
 // using multiple URLs for different software engineering levels
@@ -136,17 +168,102 @@ func NormalizeCompanyName(name string) string {
 	return normalized
 }
 
+// loadCacheFromFile attempts to load the cache from the cache file
+func loadCacheFromFile(debug bool) bool {
+	// Check if cache file exists
+	if _, err := os.Stat(cacheFilePath); os.IsNotExist(err) {
+		if debug {
+			fmt.Printf("[DEBUG] Cache file does not exist: %s\n", cacheFilePath)
+		}
+		return false
+	}
+	
+	// Read cache file
+	data, err := os.ReadFile(cacheFilePath)
+	if err != nil {
+		if debug {
+			fmt.Printf("[DEBUG] Error reading cache file: %v\n", err)
+		}
+		return false
+	}
+	
+	// Parse cache data
+	var cacheData CacheData
+	if err := json.Unmarshal(data, &cacheData); err != nil {
+		if debug {
+			fmt.Printf("[DEBUG] Error parsing cache file: %v\n", err)
+		}
+		return false
+	}
+	
+	// Check if cache is still valid
+	if time.Since(cacheData.LastFetchTime) >= cacheDuration {
+		if debug {
+			fmt.Printf("[DEBUG] Cache is expired (last fetch: %v)\n", cacheData.LastFetchTime)
+		}
+		return false
+	}
+	
+	// Cache is valid, use it
+	topCompaniesCache = cacheData.Companies
+	originalCompanyNames = cacheData.OriginalNames
+	lastFetchTime = cacheData.LastFetchTime
+	
+	if debug {
+		fmt.Printf("[DEBUG] Loaded cache from file with %d companies (last fetch: %v)\n", 
+			len(topCompaniesCache), lastFetchTime)
+	}
+	
+	return true
+}
+
+// saveCacheToFile saves the current cache to the cache file
+func saveCacheToFile(debug bool) {
+	// Create cache data
+	cacheData := CacheData{
+		Companies:     topCompaniesCache,
+		OriginalNames: originalCompanyNames,
+		LastFetchTime: lastFetchTime,
+	}
+	
+	// Marshal to JSON
+	data, err := json.MarshalIndent(cacheData, "", "  ")
+	if err != nil {
+		if debug {
+			fmt.Printf("[DEBUG] Error marshaling cache data: %v\n", err)
+		}
+		return
+	}
+	
+	// Write to file
+	if err := os.WriteFile(cacheFilePath, data, 0644); err != nil {
+		if debug {
+			fmt.Printf("[DEBUG] Error writing cache file: %v\n", err)
+		}
+		return
+	}
+	
+	if debug {
+		fmt.Printf("[DEBUG] Saved cache to file: %s\n", cacheFilePath)
+	}
+}
+
 // FetchTopPayingCompanies fetches the list of top paying companies from levels.fyi
 // This is the main function that will be called by other parts of the code
 func FetchTopPayingCompanies(debug bool) error {
 	topCompaniesCacheMux.Lock()
 	defer topCompaniesCacheMux.Unlock()
 
-	// Check if cache is still valid
+	// Check if in-memory cache is still valid
 	if time.Since(lastFetchTime) < cacheDuration && len(topCompaniesCache) > 0 {
 		if debug {
-			fmt.Printf("\n[DEBUG] Using cached top companies list (%d companies)\n", len(topCompaniesCache))
+			fmt.Printf("\n[DEBUG] Using in-memory cached top companies list (%d companies)\n", len(topCompaniesCache))
 		}
+		return nil
+	}
+	
+	// Try to load from file cache
+	if loadCacheFromFile(debug) {
 		return nil
 	}
 
@@ -257,328 +374,34 @@ func FetchTopPayingCompanies(debug bool) error {
 				"wovenplanetgroup": true,
 			}
 			
-			// Set default original names
-			// This list was pulled on 03/01/2025
-			originalCompanyNames = map[string]string{
-				"affirm": "Affirm",
-				"airbnb": "Airbnb",
-				"airtable": "Airtable",
-				"alibaba": "Alibaba",
-				"amazon": "Amazon",
-				"amplitude": "Amplitude",
-				"andurilindustries": "Anduril Industries",
-				"angellist": "AngelList",
-				"applovin": "AppLovin",
-				"apple": "Apple",
-				"aquatic": "Aquatic",
-				"boschglobal": "Bosch Global",
-				"brex": "Brex",
-				"bridgewaterassociates": "Bridgewater Associates",
-				"broadcom": "Broadcom",
-				"bytedance": "ByteDance",
-				"calicolifesciences": "Calico Life Sciences",
-				"chairesearch": "Chai Research",
-				"characterai": "Character.ai",
-				"chronosphere": "Chronosphere",
-				"circle": "Circle",
-				"citadel": "Citadel",
-				"classdojo": "ClassDojo",
-				"cloudkitchens": "CloudKitchens",
-				"clubhouse": "Clubhouse",
-				"coinbase": "Coinbase",
-				"coupang": "Coupang",
-				"cruise": "Cruise",
-				"databricks": "Databricks",
-				"discord": "Discord",
-				"docusign": "DocuSign",
-				"doordash": "DoorDash",
-				"dropbox": "Dropbox",
-				"f5networks": "F5 Networks",
-				"meta": "Meta", // This will be used for both Meta and Facebook
-				"faire": "Faire",
-				"fidelityinvestments": "Fidelity Investments",
-				"figma": "Figma",
-				"fiverings": "Five Rings",
-				"fordmotor": "Ford Motor",
-				"google": "Google",
-				"hudsonrivertrading": "Hudson River Trading",
-				"imc": "IMC",
-				"instacart": "Instacart",
-				"intuit": "Intuit",
-				"janestreet": "Jane Street",
-				"latitudeai": "Latitude AI",
-				"leidos": "Leidos",
-				"linkedin": "LinkedIn",
-				"microsoft": "Microsoft",
-				"millennium": "Millennium",
-				"mystenlabs": "Mysten Labs",
-				"netflix": "Netflix",
-				"notion": "Notion",
-				"nuro": "Nuro",
-				"oldmission": "Old Mission",
-				"openai": "OpenAI",
-				"opensea": "OpenSea",
-				"optiver": "Optiver",
-				"oracle": "Oracle",
-				"pdtpartners": "PDT Partners",
-				"pagebites": "PageBites",
-				"pinterest": "Pinterest",
-				"plaid": "Plaid",
-				"proofpoint": "Proofpoint",
-				"radixtrading": "Radix Trading",
-				"reddit": "Reddit",
-				"remitly": "Remitly",
-				"rippling": "Rippling",
-				"robinhood": "Robinhood",
-				"roblox": "Roblox",
-				"roku": "Roku",
-				"slack": "Slack",
-				"snap": "Snap",
-				"snowflake": "Snowflake",
-				"stackav": "Stack AV",
-				"stripe": "Stripe",
-				"stubhub": "StubHub",
-				"tgsmanagement": "TGS Management",
-				"theblock": "The Block",
-				"theshawgroup": "The D. E. Shaw Group",
-				"thumbtack": "Thumbtack",
-				"toyotaresearchinstitute": "Toyota Research Institute",
-				"twitch": "Twitch",
-				"twosigma": "Two Sigma",
-				"usbank": "U.S. Bank",
-				"uber": "Uber",
-				"vaticinvestments": "Vatic Investments",
-				"waymo": "Waymo",
-				"wovenplanetgroup": "Woven Planet Group",
-			}
+			// Set the last fetch time to now
+			lastFetchTime = time.Now()
+			
+			// Save the default list to cache file
+			saveCacheToFile(debug)
+			
+			return nil
 		}
+		
 		return err
 	}
 
-	// Update cache if we found any companies
-	if len(companies) > 0 {
-		topCompaniesCache = companies
-		originalCompanyNames = originalNames
-		lastFetchTime = time.Now()
-		if debug {
-			fmt.Printf("\n[DEBUG] Successfully updated top companies cache with %d total companies\n", len(topCompaniesCache))
-		}
-	} else {
-		if debug {
-			fmt.Printf("\n[DEBUG] No companies found, using default list\n")
-		}
-		// If no companies found, use a minimal default list
-		// This list was pulled on 03/01/2025
-		topCompaniesCache = map[string]bool{
-			"affirm": true,
-			"airbnb": true,
-			"airtable": true,
-			"alibaba": true,
-			"amazon": true,
-			"amplitude": true,
-			"andurilindustries": true,
-			"angellist": true,
-			"applovin": true,
-			"apple": true,
-			"aquatic": true,
-			"boschglobal": true,
-			"brex": true,
-			"bridgewaterassociates": true,
-			"broadcom": true,
-			"bytedance": true,
-			"calicolifesciences": true,
-			"chairesearch": true,
-			"characterai": true,
-			"chronosphere": true,
-			"circle": true,
-			"citadel": true,
-			"classdojo": true,
-			"cloudkitchens": true,
-			"clubhouse": true,
-			"coinbase": true,
-			"coupang": true,
-			"cruise": true,
-			"databricks": true,
-			"discord": true,
-			"docusign": true,
-			"doordash": true,
-			"dropbox": true,
-			"f5networks": true,
-			"meta": true, // Facebook is normalized to Meta
-			"faire": true,
-			"fidelityinvestments": true,
-			"figma": true,
-			"fiverings": true,
-			"fordmotor": true,
-			"google": true,
-			"hudsonrivertrading": true,
-			"imc": true,
-			"instacart": true,
-			"intuit": true,
-			"janestreet": true,
-			"latitudeai": true,
-			"leidos": true,
-			"linkedin": true,
-			"microsoft": true,
-			"millennium": true,
-			"mystenlabs": true,
-			"netflix": true,
-			"notion": true,
-			"nuro": true,
-			"oldmission": true,
-			"openai": true,
-			"opensea": true,
-			"optiver": true,
-			"oracle": true,
-			"pdtpartners": true,
-			"pagebites": true,
-			"pinterest": true,
-			"plaid": true,
-			"proofpoint": true,
-			"radixtrading": true,
-			"reddit": true,
-			"remitly": true,
-			"rippling": true,
-			"robinhood": true,
-			"roblox": true,
-			"roku": true,
-			"slack": true,
-			"snap": true,
-			"snowflake": true,
-			"stackav": true,
-			"stripe": true,
-			"stubhub": true,
-			"tgsmanagement": true,
-			"theblock": true,
-			"theshawgroup": true,
-			"thumbtack": true,
-			"toyotaresearchinstitute": true,
-			"twitch": true,
-			"twosigma": true,
-			"usbank": true,
-			"uber": true,
-			"vaticinvestments": true,
-			"waymo": true,
-			"wovenplanetgroup": true,
-		}
-		
-		// Set default original names
-		// This list was pulled on 03/01/2025
-		originalCompanyNames = map[string]string{
-			"affirm": "Affirm",
-			"airbnb": "Airbnb",
-			"airtable": "Airtable",
-			"alibaba": "Alibaba",
-			"amazon": "Amazon",
-			"amplitude": "Amplitude",
-			"andurilindustries": "Anduril Industries",
-			"angellist": "AngelList",
-			"applovin": "AppLovin",
-			"apple": "Apple",
-			"aquatic": "Aquatic",
-			"boschglobal": "Bosch Global",
-			"brex": "Brex",
-			"bridgewaterassociates": "Bridgewater Associates",
-			"broadcom": "Broadcom",
-			"bytedance": "ByteDance",
-			"calicolifesciences": "Calico Life Sciences",
-			"chairesearch": "Chai Research",
-			"characterai": "Character.ai",
-			"chronosphere": "Chronosphere",
-			"circle": "Circle",
-			"citadel": "Citadel",
-			"classdojo": "ClassDojo",
-			"cloudkitchens": "CloudKitchens",
-			"clubhouse": "Clubhouse",
-			"coinbase": "Coinbase",
-			"coupang": "Coupang",
-			"cruise": "Cruise",
-			"databricks": "Databricks",
-			"discord": "Discord",
-			"docusign": "DocuSign",
-			"doordash": "DoorDash",
-			"dropbox": "Dropbox",
-			"f5networks": "F5 Networks",
-			"meta": "Meta", // This will be used for both Meta and Facebook
-			"faire": "Faire",
-			"fidelityinvestments": "Fidelity Investments",
-			"figma": "Figma",
-			"fiverings": "Five Rings",
-			"fordmotor": "Ford Motor",
-			"google": "Google",
-			"hudsonrivertrading": "Hudson River Trading",
-			"imc": "IMC",
-			"instacart": "Instacart",
-			"intuit": "Intuit",
-			"janestreet": "Jane Street",
-			"latitudeai": "Latitude AI",
-			"leidos": "Leidos",
-			"linkedin": "LinkedIn",
-			"microsoft": "Microsoft",
-			"millennium": "Millennium",
-			"mystenlabs": "Mysten Labs",
-			"netflix": "Netflix",
-			"notion": "Notion",
-			"nuro": "Nuro",
-			"oldmission": "Old Mission",
-			"openai": "OpenAI",
-			"opensea": "OpenSea",
-			"optiver": "Optiver",
-			"oracle": "Oracle",
-			"pdtpartners": "PDT Partners",
-			"pagebites": "PageBites",
-			"pinterest": "Pinterest",
-			"plaid": "Plaid",
-			"proofpoint": "Proofpoint",
-			"radixtrading": "Radix Trading",
-			"reddit": "Reddit",
-			"remitly": "Remitly",
-			"rippling": "Rippling",
-			"robinhood": "Robinhood",
-			"roblox": "Roblox",
-			"roku": "Roku",
-			"slack": "Slack",
-			"snap": "Snap",
-			"snowflake": "Snowflake",
-			"stackav": "Stack AV",
-			"stripe": "Stripe",
-			"stubhub": "StubHub",
-			"tgsmanagement": "TGS Management",
-			"theblock": "The Block",
-			"theshawgroup": "The D. E. Shaw Group",
-			"thumbtack": "Thumbtack",
-			"toyotaresearchinstitute": "Toyota Research Institute",
-			"twitch": "Twitch",
-			"twosigma": "Two Sigma",
-			"usbank": "U.S. Bank",
-			"uber": "Uber",
-			"vaticinvestments": "Vatic Investments",
-			"waymo": "Waymo",
-			"wovenplanetgroup": "Woven Planet Group",
-		}
-	}
+	// Update the cache
+	topCompaniesCache = companies
+	originalCompanyNames = originalNames
+	lastFetchTime = time.Now()
+	
+	// Save to file cache
+	saveCacheToFile(debug)
 
-	// Print the list of companies if in debug mode
 	if debug {
-		fmt.Println("[DEBUG] Top paying companies:")
-		companies := make([]string, 0, len(topCompaniesCache))
-		for company := range topCompaniesCache {
-			companies = append(companies, company)
-		}
-		sort.Strings(companies)
-		for _, company := range companies {
-			originalName := originalCompanyNames[company]
-			if originalName == "" {
-				originalName = company // Fallback to normalized name if original not found
-			}
-			fmt.Printf("[DEBUG] - %s (normalized: %s)\n", originalName, company)
-		}
+		fmt.Printf("[DEBUG] Updated top companies cache with %d companies\n", len(topCompaniesCache))
 	}
 
 	return nil
 }
 
-// IsTopPayingCompany checks if a company is in the top paying companies list from levels.fyi
+// IsTopPayingCompany checks if a company is in the list of top paying companies
 func IsTopPayingCompany(company string, debug bool) bool {
 	// Ensure we have the latest top companies data
 	if err := FetchTopPayingCompanies(debug); err != nil {
