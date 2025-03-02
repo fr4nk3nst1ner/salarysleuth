@@ -162,8 +162,22 @@ func IsValidJob(title, location, titleKeyword string, remoteOnly, internshipsOnl
 		return false
 	}
 
-	if remoteOnly && !strings.Contains(location, "remote") {
-		return false
+	if remoteOnly {
+		// Check for various remote indicators in the location
+		isRemote := strings.Contains(location, "remote") ||
+			strings.Contains(location, "anywhere") ||
+			strings.Contains(location, "work from home") ||
+			strings.Contains(location, "wfh") ||
+			strings.Contains(title, "remote") ||
+			// LinkedIn often lists nationwide remote jobs as "United States"
+			(strings.Contains(location, "united states") && !strings.Contains(location, ",")) ||
+			// Check for remote indicators in the title
+			strings.Contains(title, "work from home") ||
+			strings.Contains(title, "wfh")
+		
+		if !isRemote {
+			return false
+		}
 	}
 
 	if internshipsOnly && !strings.Contains(title, "intern") && !strings.Contains(title, "internship") {
