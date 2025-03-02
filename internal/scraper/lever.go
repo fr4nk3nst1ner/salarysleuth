@@ -40,7 +40,7 @@ type LeverJob struct {
 }
 
 // ScrapeLever scrapes job listings from Lever's job boards
-func ScrapeLever(description string, pages int, debug bool, proxyURL string, progress *models.ScrapeProgress) ([]models.SalaryInfo, error) {
+func ScrapeLever(description string, pages int, debug bool, proxyURL string, progress *models.ScrapeProgress, topPayOnly bool) ([]models.SalaryInfo, error) {
 	httpClient := client.CreateProxyHTTPClient(proxyURL)
 	var results []models.SalaryInfo
 
@@ -63,6 +63,14 @@ func ScrapeLever(description string, pages int, debug bool, proxyURL string, pro
 	}
 
 	for _, company := range companies {
+		// Skip if not in top paying companies when filter is enabled
+		if topPayOnly && !utils.IsTopPayingCompany(company, debug) {
+			if debug {
+				fmt.Printf("Skipping %s - not in top paying companies list\n", company)
+			}
+			continue
+		}
+
 		// Build company job board URL
 		companyURL := fmt.Sprintf("%s/%s", leverBaseURL, company)
 		

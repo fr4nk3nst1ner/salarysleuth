@@ -3,13 +3,13 @@ package utils
 import (
 	"fmt"
 	"math/rand"
+	"net/http"
 	"net/url"
 	"regexp"
-	"strings"
-	"time"
-	"net/http"
-	"sync"
 	"strconv"
+	"strings"
+	"sync"
+	"time"
 
 	"github.com/PuerkitoBio/goquery"
 	"github.com/fr4nk3nst1ner/salarysleuth/internal/models"
@@ -24,10 +24,15 @@ const (
 
 var userAgent = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36"
 
-// Cache for Levels.fyi salary data to avoid repeated requests
+// Cache for Levels.fyi salary data
 var (
 	salaryCache     = make(map[string]string)
 	salaryCacheMux  sync.RWMutex
+	salaryFetchTime time.Time
+	salaryCacheTTL  = 24 * time.Hour // Cache for 24 hours
+
+	// The top companies cache variables have been moved to top_paying_companies.go
+	
 	levelsFyiClient = &http.Client{
 		Timeout: 10 * time.Second,
 		Transport: &http.Transport{
@@ -148,7 +153,7 @@ func NormalizeGreenhouseURL(jobURL string) string {
 }
 
 // IsValidJob checks if a job matches the search criteria
-func IsValidJob(title, location, titleKeyword string, remoteOnly, internshipsOnly bool) bool {
+func IsValidJob(title, location, titleKeyword string, remoteOnly, internshipsOnly, topPayOnly bool, company string) bool {
 	title = strings.ToLower(title)
 	location = strings.ToLower(location)
 	titleKeyword = strings.ToLower(titleKeyword)
@@ -161,8 +166,12 @@ func IsValidJob(title, location, titleKeyword string, remoteOnly, internshipsOnl
 		return false
 	}
 
-	if internshipsOnly {
-		return strings.Contains(title, "intern") || strings.Contains(title, "internship")
+	if internshipsOnly && !strings.Contains(title, "intern") && !strings.Contains(title, "internship") {
+		return false
+	}
+
+	if topPayOnly && !IsTopPayingCompany(company, false) {
+		return false
 	}
 
 	return true
@@ -205,6 +214,15 @@ func GetSalaryFromLevelsFyi(companyName string, debug bool) (string, error) {
 
 	// Clean and format company name for URL
 	cleanName := strings.ToLower(strings.ReplaceAll(companyName, " ", "-"))
+	
+	// Special case for Meta - use Facebook instead for levels.fyi
+	if strings.ToLower(companyName) == "meta" {
+		cleanName = "facebook"
+		if debug {
+			fmt.Printf("Company is Meta, using Facebook for levels.fyi lookup\n")
+		}
+	}
+	
 	url := fmt.Sprintf("https://www.levels.fyi/companies/%s/salaries/", cleanName)
 
 	if debug {
@@ -312,4 +330,6 @@ func ProcessWithLevelsFyi(jobs []models.SalaryInfo, debug bool) {
 			jobs[i].LevelSalary = salary
 		}
 	}
-} 
+}
+
+// The FetchTopPayingCompanies and IsTopPayingCompany functions have been moved to top_paying_companies.go

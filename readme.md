@@ -3,7 +3,7 @@ This is a Go program that checks the median salaries of software engineers for c
 
 ## Usage
 ```bash
-salarysleuth [-d | --description job_characteristic] [-l | --location location] [-t | --title title_keyword] [-r | --remote] [--internships] [-s | --silence] [-h | --help]
+salarysleuth [-d | --description job_characteristic] [-l | --location location] [-t | --title title_keyword] [-r | --remote] [--internships] [--top-pay] [-s | --silence] [-h | --help]
 ```
 
 ## Options
@@ -12,6 +12,7 @@ salarysleuth [-d | --description job_characteristic] [-l | --location location] 
 * `-t title_keyword`, `--title title_keyword` - Optional: Keyword to search for in job titles on LinkedIn
 * `-r`, `--remote` - Optional: Retrieve only remote jobs or jobs listed under "United States"
 * `--internships` - Optional: Retrieve only jobs with "intern" in the title
+* `--top-pay` - Optional: Only show jobs from companies listed in levels.fyi's top paying companies list
 * `-s`, `--silence` - Optional: Silence the banner
 * `-h`, `--help` - Optional. Displays the help menu.
 
@@ -29,6 +30,11 @@ salarysleuth -d "Software Engineer" --internships
 - Search for jobs in "San Francisco, CA" that mention "Metasploit" in the job title, and silence the banner:
 ```bash
 salarysleuth -d "Metasploit" -l "San Francisco, CA" -s
+```
+
+- Search for jobs at top paying tech companies that mention "Python":
+```bash
+salarysleuth -d "Python" --top-pay
 ```
 
 ### Docker
