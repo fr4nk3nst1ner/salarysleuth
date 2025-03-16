@@ -1,6 +1,8 @@
 venv/
-salarysleuth
+/salarysleuth
+salarysleuth-*
 salarysleuth.go.bak
 # go.mod
 # go.sum
 output.txt
+.salarysleuth/
