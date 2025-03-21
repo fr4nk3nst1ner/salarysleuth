@@ -4,6 +4,7 @@ on:
   push:
     tags:
       - 'v*'
+  workflow_dispatch:  
 
 jobs:
   build:
@@ -11,9 +12,23 @@ jobs:
 
     strategy:
       matrix:
-        goos: [linux, linux, darwin, windows]
-        goarch: [amd64, arm64, arm64, amd64]
-        ext: [ "", "", "", ".exe" ]
+        include:
+          - goos: linux
+            goarch: amd64
+            ext: ""
+          - goos: linux
+            goarch: arm64
+            ext: ""
+          - goos: darwin
+            goarch: amd64
+            ext: ""
+          - goos: darwin
+            goarch: arm64
+            ext: ""
+          - goos: windows
+            goarch: amd64
+            ext: ".exe"
+      fail-fast: false
 
     steps:
     - uses: actions/checkout@v4
@@ -29,13 +44,14 @@ jobs:
 
     - name: Build binary
       run: |
-        CGO_ENABLED=0 GOOS=${{ matrix.goos }} GOARCH=${{ matrix.goarch }} go build -o salarysleuth-${{ matrix.goos }}-${{ matrix.goarch }}${{ matrix.ext }}
+        CGO_ENABLED=0 GOOS=${{ matrix.goos }} GOARCH=${{ matrix.goarch }} go build -o salarysleuth-${{ matrix.goos }}-${{ matrix.goarch }}${{ matrix.ext }} ./cmd/salarysleuth
 
     - name: Archive binary
       uses: actions/upload-artifact@v4
       with:
         name: salarysleuth-${{ matrix.goos }}-${{ matrix.goarch }}${{ matrix.ext }}
         path: salarysleuth-${{ matrix.goos }}-${{ matrix.goarch }}${{ matrix.ext }}
+        if-no-files-found: error
 
   release:
     needs: build
@@ -53,6 +69,12 @@ jobs:
       uses: actions/download-artifact@v4
       with:
         name: salarysleuth-linux-arm64
+        path: ./release-assets/
+
+    - name: Download macOS x64 binary
+      uses: actions/download-artifact@v4
+      with:
+        name: salarysleuth-darwin-amd64
         path: ./release-assets/
 
     - name: Download macOS arm64 binary
