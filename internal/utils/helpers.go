@@ -32,15 +32,9 @@ var (
 	salaryCacheTTL  = 24 * time.Hour // Cache for 24 hours
 
 	// The top companies cache variables have been moved to top_paying_companies.go
-	
+
 	levelsFyiClient = &http.Client{
 		Timeout: 10 * time.Second,
-		Transport: &http.Transport{
-			MaxIdleConns:        100,
-			MaxIdleConnsPerHost: 10,
-			IdleConnTimeout:     90 * time.Second,
-			DisableCompression:  false,
-		},
 	}
 )
 
@@ -75,7 +69,7 @@ func ExtractNumericValue(salaryStr string) int {
 	salaryStr = strings.TrimSpace(salaryStr)
 	salaryStr = strings.ReplaceAll(salaryStr, "$", "")
 	salaryStr = strings.ReplaceAll(salaryStr, ",", "")
-	
+
 	// Handle "K" suffix (e.g., "100K" -> 100000)
 	if strings.Contains(strings.ToUpper(salaryStr), "K") {
 		salaryStr = strings.ToUpper(salaryStr)
@@ -84,12 +78,12 @@ func ExtractNumericValue(salaryStr string) int {
 			return val * 1000
 		}
 	}
-	
+
 	// Try to parse the numeric value
 	if val, err := strconv.Atoi(salaryStr); err == nil {
 		return val
 	}
-	
+
 	return 0
 }
 
@@ -114,12 +108,12 @@ func FormatSalary(salary string) string {
 func formatNumberWithCommas(n int) string {
 	// Convert number to string
 	numStr := strconv.Itoa(n)
-	
+
 	// Add commas every 3 digits from the right
 	for i := len(numStr) - 3; i > 0; i -= 3 {
 		numStr = numStr[:i] + "," + numStr[i:]
 	}
-	
+
 	return numStr
 }
 
@@ -127,10 +121,10 @@ func formatNumberWithCommas(n int) string {
 func IsValidSource(source string) bool {
 	validSources := map[string]bool{
 		"greenhouse": true,
-		"lever":     true,
-		"linkedin":  true,
-		"monster":   true,
-		"indeed":    true,
+		"lever":      true,
+		"linkedin":   true,
+		"monster":    true,
+		"indeed":     true,
 	}
 	return validSources[strings.ToLower(source)]
 }
@@ -140,7 +134,7 @@ func NormalizeGreenhouseURL(jobURL string) string {
 	if strings.Contains(jobURL, "boards.greenhouse.io") {
 		return jobURL
 	}
-	
+
 	parts := strings.Split(jobURL, "/")
 	for i, part := range parts {
 		if part == "jobs" && i+1 < len(parts) {
@@ -174,7 +168,7 @@ func IsValidJob(title, location, titleKeyword string, remoteOnly, internshipsOnl
 			// Check for remote indicators in the title
 			strings.Contains(title, "work from home") ||
 			strings.Contains(title, "wfh")
-		
+
 		if !isRemote {
 			return false
 		}
@@ -228,7 +222,7 @@ func GetSalaryFromLevelsFyi(companyName string, debug bool) (string, error) {
 
 	// Clean and format company name for URL
 	cleanName := strings.ToLower(strings.ReplaceAll(companyName, " ", "-"))
-	
+
 	// Special case for Meta - use Facebook instead for levels.fyi
 	if strings.ToLower(companyName) == "meta" {
 		cleanName = "facebook"
@@ -236,7 +230,7 @@ func GetSalaryFromLevelsFyi(companyName string, debug bool) (string, error) {
 			fmt.Printf("Company is Meta, using Facebook for levels.fyi lookup\n")
 		}
 	}
-	
+
 	url := fmt.Sprintf("https://www.levels.fyi/companies/%s/salaries/", cleanName)
 
 	if debug {
@@ -252,8 +246,6 @@ func GetSalaryFromLevelsFyi(companyName string, debug bool) (string, error) {
 	req.Header.Set("User-Agent", "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36")
 	req.Header.Set("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8")
 	req.Header.Set("Accept-Language", "en-US,en;q=0.9")
-	req.Header.Set("Accept-Encoding", "gzip, deflate, br")
-	req.Header.Set("Connection", "keep-alive")
 
 	resp, err := levelsFyiClient.Do(req)
 	if err != nil {
@@ -312,12 +304,12 @@ func ProcessWithLevelsFyi(jobs []models.SalaryInfo, debug bool) {
 		wg.Add(1)
 		go func(companyName string) {
 			defer wg.Done()
-			semaphore <- struct{}{} // Acquire semaphore
+			semaphore <- struct{}{}        // Acquire semaphore
 			defer func() { <-semaphore }() // Release semaphore
 
 			// Get salary data
 			salary, err := GetSalaryFromLevelsFyi(companyName, debug)
-			if err == nil && salary != "No Data" {
+			if err == nil {
 				resultsChan <- salaryResult{company: companyName, salary: salary}
 			}
 
