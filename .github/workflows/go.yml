@@ -36,7 +36,7 @@ jobs:
     - name: Set up Go
       uses: actions/setup-go@v4
       with:
-        go-version: '1.21'
+        go-version: '1.23'
 
     - name: Initialize Go module
       run: |
@@ -95,8 +95,8 @@ jobs:
     - name: Determine Next Version
       id: next_version
       run: |
-        # Fetch all tags from the remote
-        git fetch --tags
+        # Fetch all tags from the remote (force to overwrite any cached tags)
+        git fetch --tags --force
 
         # Get the latest tag from the repository
         CURRENT_VERSION=$(git describe --tags --abbrev=0 || echo "v0.0.0")
