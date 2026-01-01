@@ -1,93 +1,70 @@
 package scraper
 
 import (
-//	"encoding/json"
 	"fmt"
 	"math/rand"
 	"net/http"
 	"net/url"
-	"strconv"
 	"strings"
 	"time"
 
-//	"github.com/PuerkitoBio/goquery"
-	"github.com/fr4nk3nst1ner/salarysleuth/internal/models"
+	"github.com/PuerkitoBio/goquery"
 	"github.com/fr4nk3nst1ner/salarysleuth/internal/client"
+	"github.com/fr4nk3nst1ner/salarysleuth/internal/models"
 	"github.com/fr4nk3nst1ner/salarysleuth/internal/utils"
-	"github.com/tidwall/gjson"
 )
 
 const (
-	indeedAPIURL        = "https://www.indeed.com/m/basecamp/viewjob"
-	indeedMobileURL     = "https://www.indeed.com/m/jobs"
-	indeedMaxRetries    = 5
+	indeedBaseURL        = "https://www.indeed.com"
 	indeedResultsPerPage = 10
-	minIndeedDelay      = 5 * time.Second
-	maxIndeedDelay      = 10 * time.Second
+	minIndeedDelay       = 3 * time.Second
+	maxIndeedDelay       = 7 * time.Second
+	indeedMaxRetries     = 3
 )
 
-// getIndeedHeaders returns headers that mimic Indeed's mobile app
-func getIndeedHeaders() http.Header {
-	headers := http.Header{}
-	
-	// Use mobile user agent
-	headers.Set("User-Agent", client.MobileUserAgents[rand.Intn(len(client.MobileUserAgents))])
-	
-	// Indeed-specific headers
-	headers.Set("Indeed-Client-App", "MOBILE_WEB")
-	headers.Set("X-Indeed-Client", "MOBILE_WEB")
-	headers.Set("X-Indeed-Version", "2.0")
-	
-	// Common mobile headers
-	headers.Set("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8")
-	headers.Set("Accept-Language", "en-US,en;q=0.9")
-	headers.Set("Accept-Encoding", "gzip, deflate, br")
-	headers.Set("Connection", "keep-alive")
-	headers.Set("Upgrade-Insecure-Requests", "1")
-	headers.Set("Sec-Fetch-Site", "same-origin")
-	headers.Set("Sec-Fetch-Mode", "navigate")
-	headers.Set("Sec-Fetch-User", "?1")
-	headers.Set("Sec-Fetch-Dest", "document")
-	headers.Set("Sec-Ch-Ua-Mobile", "?1")
-	headers.Set("Sec-Ch-Ua-Platform", `"Android"`)
-	
-	return headers
-}
-
 // ScrapeIndeed scrapes job listings from Indeed.com
+// Note: Indeed uses Cloudflare protection which may block automated requests.
+// This scraper attempts HTML parsing but may return empty results if blocked.
 func ScrapeIndeed(description string, pages int, debug bool, proxyURL string, progress *models.ScrapeProgress, topPayOnly bool) ([]models.SalaryInfo, error) {
 	httpClient := client.CreateProxyHTTPClient(proxyURL)
 	var results []models.SalaryInfo
 
 	if debug {
-		fmt.Printf("Searching for jobs with description: %s\n", description)
+		fmt.Printf("Searching Indeed for jobs with description: %s\n", description)
+		fmt.Println("Note: Indeed uses Cloudflare protection - results may be limited")
 	}
 
 	// Format search query
-	query := strings.Join(strings.Fields(description), "+")
+	query := url.QueryEscape(description)
 
 	for page := 0; page < pages; page++ {
 		// Build search URL with pagination
 		start := page * indeedResultsPerPage
-		searchURL := fmt.Sprintf("%s/jobs/search/api?q=%s&start=%d&limit=%d&fromage=any&filter=0", 
-			indeedMobileURL,
-			url.QueryEscape(query),
-			start,
-			indeedResultsPerPage,
-		)
+		searchURL := fmt.Sprintf("%s/jobs?q=%s&l=&start=%d", indeedBaseURL, query, start)
 
 		if debug {
 			fmt.Printf("Fetching page %d: %s\n", page+1, searchURL)
 		}
 
 		// Get the search results with retries
-		var jobData []gjson.Result
+		var pageResults []models.SalaryInfo
 		var err error
+
 		for retry := 0; retry < indeedMaxRetries; retry++ {
-			jobData, err = fetchIndeedJobData(httpClient, searchURL, debug)
+			pageResults, err = fetchIndeedPage(httpClient, searchURL, topPayOnly, debug)
 			if err == nil {
 				break
 			}
+
+			if strings.Contains(err.Error(), "cloudflare") || strings.Contains(err.Error(), "blocked") {
+				if debug {
+					fmt.Printf("Indeed appears to be blocking requests (Cloudflare protection)\n")
+				}
+				// Return what we have so far instead of failing completely
+				fmt.Println("Warning: Indeed is using Cloudflare protection. Consider using other sources.")
+				return results, nil
+			}
+
 			if retry < indeedMaxRetries-1 {
 				delay := time.Duration(rand.Int63n(int64(maxIndeedDelay-minIndeedDelay))) + minIndeedDelay
 				if debug {
@@ -96,58 +73,21 @@ func ScrapeIndeed(description string, pages int, debug bool, proxyURL string, pr
 				time.Sleep(delay)
 			}
 		}
+
 		if err != nil {
-			return nil, fmt.Errorf("failed to fetch page %d after %d retries: %v", page+1, indeedMaxRetries, err)
-		}
-
-		// Process each job listing
-		for _, job := range jobData {
-			title := job.Get("title").String()
-			company := job.Get("company").String()
-			location := job.Get("location").String()
-			jobKey := job.Get("jobkey").String()
-			
-			// Check if company is in top paying list if filter is enabled
-			if topPayOnly && !utils.IsTopPayingCompany(company, debug) {
-				if debug {
-					fmt.Printf("Skipping %s - not in top paying companies list\n", company)
-				}
-				continue
-			}
-			
-			// Build job URL
-			jobURL := fmt.Sprintf("%s/viewjob?jk=%s", indeedMobileURL, jobKey)
-
-			// Extract salary information
-			salary := "Not Available"
-			if salarySnippet := job.Get("salary"); salarySnippet.Exists() {
-				salary = salarySnippet.String()
-			}
-
-			// If no salary in the API response, try to get it from the job description
-			if salary == "Not Available" {
-				description := job.Get("snippet").String()
-				if match := utils.FindSalaryInText(description); match != "" {
-					salary = match
-				}
-			}
-
-			jobInfo := models.SalaryInfo{
-				Company:     company,
-				Title:      title,
-				Location:   location,
-				URL:        jobURL,
-				SalaryRange: salary,
-				Source:     "indeed",
-			}
-
-			results = append(results, jobInfo)
 			if debug {
-				fmt.Printf("Added job: %s at %s (%s)\n", title, company, location)
+				fmt.Printf("Error fetching page %d: %v\n", page+1, err)
 			}
+			// Continue to next page instead of failing
+			continue
 		}
 
+		results = append(results, pageResults...)
 		progress.FoundJobs = len(results)
+
+		if debug {
+			fmt.Printf("Found %d jobs on page %d (total: %d)\n", len(pageResults), page+1, len(results))
+		}
 
 		// Add delay between pages
 		if page < pages-1 {
@@ -162,32 +102,29 @@ func ScrapeIndeed(description string, pages int, debug bool, proxyURL string, pr
 	return results, nil
 }
 
-// fetchIndeedJobData fetches job data from Indeed's mobile API
-func fetchIndeedJobData(httpClient *http.Client, searchURL string, debug bool) ([]gjson.Result, error) {
+// fetchIndeedPage fetches and parses a single page of Indeed search results
+func fetchIndeedPage(httpClient *http.Client, searchURL string, topPayOnly bool, debug bool) ([]models.SalaryInfo, error) {
 	req, err := http.NewRequest("GET", searchURL, nil)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create request: %v", err)
 	}
 
-	// Use Indeed mobile app headers
-	headers := getIndeedHeaders()
+	// Use browser-like headers
+	headers := client.GetRandomHeaders()
 	for key, values := range headers {
 		req.Header[key] = values
 	}
 
-	// Add random query parameters
-	q := req.URL.Query()
-	q.Add("client", "ios")
-	q.Add("v", "1276")
-	q.Add("deviceid", generateDeviceToken())
-	q.Add("t", strconv.FormatInt(time.Now().Unix(), 10))
-	req.URL.RawQuery = q.Encode()
-
 	resp, err := httpClient.Do(req)
 	if err != nil {
-		return nil, fmt.Errorf("failed to fetch jobs: %v", err)
+		return nil, fmt.Errorf("failed to fetch page: %v", err)
 	}
 	defer resp.Body.Close()
+
+	// Check for Cloudflare protection
+	if resp.StatusCode == 403 || resp.StatusCode == 503 {
+		return nil, fmt.Errorf("blocked by cloudflare (status: %d)", resp.StatusCode)
+	}
 
 	if resp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("received non-200 status code: %d", resp.StatusCode)
@@ -199,26 +136,141 @@ func fetchIndeedJobData(httpClient *http.Client, searchURL string, debug bool) (
 		return nil, fmt.Errorf("failed to read response body: %v", err)
 	}
 
-	if debug {
-		fmt.Printf("Response body:\n%s\n", string(body))
+	bodyStr := string(body)
+
+	// Check for Cloudflare challenge page indicators
+	if strings.Contains(bodyStr, "Just a moment") ||
+		strings.Contains(bodyStr, "Cloudflare") ||
+		strings.Contains(bodyStr, "cf-browser-verification") ||
+		strings.Contains(bodyStr, "Additional Verification Required") {
+		return nil, fmt.Errorf("blocked by cloudflare (challenge page)")
 	}
 
-	// Parse the JSON response
-	jsonData := gjson.Parse(string(body))
-	results := jsonData.Get("results").Array()
-	if len(results) == 0 {
-		return nil, fmt.Errorf("no job results found in response")
+	if debug {
+		// Only print first 1000 chars to avoid overwhelming output
+		preview := bodyStr
+		if len(preview) > 1000 {
+			preview = preview[:1000] + "..."
+		}
+		fmt.Printf("Indeed response preview:\n%s\n", preview)
+	}
+
+	// Parse the HTML
+	doc, err := goquery.NewDocumentFromReader(strings.NewReader(bodyStr))
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse HTML: %v", err)
+	}
+
+	var results []models.SalaryInfo
+
+	// Indeed uses various selectors for job cards - try multiple patterns
+	jobCardSelectors := []string{
+		"div.job_seen_beacon",
+		"div.jobsearch-ResultsList div.cardOutline",
+		"div[data-jk]",
+		"div.result",
+		"td.resultContent",
+	}
+
+	for _, selector := range jobCardSelectors {
+		doc.Find(selector).Each(func(i int, s *goquery.Selection) {
+			// Extract job information using various possible selectors
+			title := extractIndeedText(s, []string{
+				"h2.jobTitle span[title]",
+				"h2.jobTitle a",
+				"h2.jobTitle",
+				"a.jcs-JobTitle span",
+				"a.jcs-JobTitle",
+			})
+
+			company := extractIndeedText(s, []string{
+				"span.companyName",
+				"span[data-testid='company-name']",
+				"div.companyInfo span.companyName",
+				"span.company",
+			})
+
+			location := extractIndeedText(s, []string{
+				"div.companyLocation",
+				"div[data-testid='text-location']",
+				"span.companyLocation",
+				"span.location",
+			})
+
+			// Skip if essential fields are missing
+			if title == "" || company == "" {
+				return
+			}
+
+			// Check if company is in top paying list if filter is enabled
+			if topPayOnly && !utils.IsTopPayingCompany(company, debug) {
+				return
+			}
+
+			// Extract job URL
+			jobURL := ""
+			if href, exists := s.Find("a.jcs-JobTitle").Attr("href"); exists {
+				jobURL = indeedBaseURL + href
+			} else if href, exists := s.Find("h2.jobTitle a").Attr("href"); exists {
+				jobURL = indeedBaseURL + href
+			} else if jk, exists := s.Attr("data-jk"); exists {
+				jobURL = fmt.Sprintf("%s/viewjob?jk=%s", indeedBaseURL, jk)
+			}
+
+			// Extract salary information
+			salary := extractIndeedText(s, []string{
+				"div.salary-snippet-container",
+				"div[data-testid='attribute_snippet_testid']",
+				"span.salaryText",
+				"div.metadata.salary-snippet-container",
+			})
+
+			if salary == "" {
+				salary = "Not Available"
+			}
+
+			// Also try to find salary in the job snippet
+			if salary == "Not Available" {
+				snippet := extractIndeedText(s, []string{
+					"div.job-snippet",
+					"div.job-snippet ul",
+					"table.jobCardShelfContainer",
+				})
+				if match := utils.FindSalaryInText(snippet); match != "" {
+					salary = match
+				}
+			}
+
+			jobInfo := models.SalaryInfo{
+				Company:     strings.TrimSpace(company),
+				Title:       strings.TrimSpace(title),
+				Location:    strings.TrimSpace(location),
+				URL:         jobURL,
+				SalaryRange: salary,
+				Source:      "indeed",
+			}
+
+			results = append(results, jobInfo)
+			if debug {
+				fmt.Printf("Added job: %s at %s (%s)\n", title, company, location)
+			}
+		})
+
+		// If we found results with this selector, don't try others
+		if len(results) > 0 {
+			break
+		}
 	}
 
 	return results, nil
 }
 
-// generateDeviceToken creates a random device token similar to Indeed's format
-func generateDeviceToken() string {
-	const chars = "abcdef0123456789"
-	b := make([]byte, 32)
-	for i := range b {
-		b[i] = chars[rand.Intn(len(chars))]
+// extractIndeedText tries multiple selectors and returns the first non-empty text
+func extractIndeedText(s *goquery.Selection, selectors []string) string {
+	for _, selector := range selectors {
+		if text := strings.TrimSpace(s.Find(selector).First().Text()); text != "" {
+			return text
+		}
 	}
-	return string(b)
-} 
+	return ""
+}

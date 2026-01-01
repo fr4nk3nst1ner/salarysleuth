@@ -99,13 +99,18 @@ func main() {
 
 	var allResults []models.SalaryInfo
 
-	// Set default source to LinkedIn if no source specified
-	sourcesToSearch := []string{"linkedin"}
+	// Set sources to search - default to all working sources if not specified
+	// Note: Indeed and Monster have aggressive bot protection, so we exclude them from "all"
+	var sourcesToSearch []string
 	if *source != "" {
 		if !utils.IsValidSource(*source) {
 			log.Fatal("Invalid source. Must be one of: linkedin, greenhouse, lever, monster, indeed")
 		}
 		sourcesToSearch = []string{*source}
+	} else {
+		// Search all reliable sources when none specified
+		sourcesToSearch = []string{"linkedin", "greenhouse", "lever"}
+		fmt.Println("Searching all sources: LinkedIn, Greenhouse, Lever")
 	}
 
 	// Search each source
@@ -121,7 +126,7 @@ func main() {
 		case "linkedin":
 			results, err = scraper.ScrapeLinkedIn(*description, *city, *titleKeyword, *remoteOnly, *internshipsOnly, *topPayOnly, *pages, *debug, *proxyURL, progress)
 		case "greenhouse":
-			results, err = scraper.ScrapeGreenhouse(*description, *pages, *debug, *proxyURL, progress)
+			results, err = scraper.ScrapeGreenhouse(*description, *pages, *debug, *proxyURL, progress, *topPayOnly)
 			// Filter for remote jobs in post-processing
 			if *remoteOnly && err == nil {
 				var filteredResults []models.SalaryInfo
@@ -176,6 +181,14 @@ func main() {
 		}
 
 		allResults = append(allResults, results...)
+	}
+
+	// Deduplicate results if searching multiple sources
+	if len(sourcesToSearch) > 1 {
+		allResults = deduplicateJobs(allResults)
+		if *debug {
+			fmt.Printf("After deduplication: %d unique jobs\n", len(allResults))
+		}
 	}
 
 	// Process results with Levels.fyi data if not disabled
@@ -242,4 +255,44 @@ func truncateString(s string, length int) string {
 		return s
 	}
 	return s[:length-3] + "..."
+}
+
+// deduplicateJobs removes duplicate job listings based on company + title
+// When duplicates are found, it prefers entries with salary information
+func deduplicateJobs(jobs []models.SalaryInfo) []models.SalaryInfo {
+	seen := make(map[string]int) // maps key to index in result slice
+	var result []models.SalaryInfo
+
+	for _, job := range jobs {
+		// Create a normalized key from company + title
+		key := normalizeForDedup(job.Company) + "|" + normalizeForDedup(job.Title)
+
+		if existingIdx, exists := seen[key]; exists {
+			// Duplicate found - prefer the one with salary info
+			existing := result[existingIdx]
+			if existing.SalaryRange == "Not Available" && job.SalaryRange != "Not Available" {
+				// Replace with the one that has salary info
+				result[existingIdx] = job
+			}
+			// Otherwise keep the existing one (first source wins)
+		} else {
+			// New job, add it
+			seen[key] = len(result)
+			result = append(result, job)
+		}
+	}
+
+	return result
+}
+
+// normalizeForDedup normalizes a string for deduplication comparison
+func normalizeForDedup(s string) string {
+	// Convert to lowercase and remove extra whitespace
+	s = strings.ToLower(strings.TrimSpace(s))
+	// Remove common variations
+	s = strings.ReplaceAll(s, ",", "")
+	s = strings.ReplaceAll(s, ".", "")
+	s = strings.ReplaceAll(s, "-", " ")
+	s = strings.ReplaceAll(s, "  ", " ")
+	return s
 } 
