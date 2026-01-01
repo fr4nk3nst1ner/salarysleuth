@@ -1,5 +1,5 @@
 # Use the official Go image as the base image
-FROM golang:1.21
+FROM golang:1.23
 
 # Set the working directory
 WORKDIR /app
@@ -12,7 +12,7 @@ RUN go mod tidy
 RUN go mod download
 
 # Build the Go application
-RUN go build -o salarysleuth .
+RUN go build -o salarysleuth ./cmd/salarysleuth
 
 # Set the entry point to run the Go application with arguments
 ENTRYPOINT ["./salarysleuth"]
