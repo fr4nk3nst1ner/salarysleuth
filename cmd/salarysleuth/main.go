@@ -38,6 +38,9 @@ func printExamples() {
 	fmt.Println("\n7. Search for jobs on Indeed and display results in table format:")
 	fmt.Println("   salarysleuth -description \"DevOps\" -source indeed -table")
 	
+	fmt.Println("\n8. Search for jobs and display URLs as clickable hyperlinks (requires terminal support):")
+	fmt.Println("   salarysleuth -description \"Security Engineer\" -hyperlink")
+	
 	fmt.Println("\nFor more information, visit: https://github.com/fr4nk3nst1ner/salarysleuth")
 	os.Exit(0)
 }
@@ -62,6 +65,9 @@ func main() {
 	// Banner control flags (two aliases for the same functionality)
 	silence := flag.Bool("silence", false, "Silence the banner")
 	noBanner := flag.Bool("nobanner", false, "Silence the banner (alias for -silence)")
+	
+	// URL display flag
+	hyperlink := flag.Bool("hyperlink", false, "Display job URLs as clickable terminal hyperlinks (requires terminal support)")
 
 	flag.Parse()
 
@@ -228,7 +234,7 @@ func main() {
 				ui.ColorizeSalary(job.LevelSalary),
 				truncateString(job.Title, 36),
 				job.Source,
-				job.URL)
+				ui.FormatURL(job.URL, *hyperlink))
 		}
 		fmt.Println(strings.Repeat("-", 175))
 		fmt.Printf("\nShowing %d jobs with Levels.fyi salary data\n", len(filteredJobs))
@@ -242,7 +248,7 @@ func main() {
 			if !*noLevels && job.LevelSalary != "" && job.LevelSalary != "No Data" {
 				fmt.Printf("Levels.fyi Average: %s\n", ui.ColorizeSalary(job.LevelSalary))
 			}
-			fmt.Printf("URL: %s\n", job.URL)
+			fmt.Printf("URL: %s\n", ui.FormatURL(job.URL, *hyperlink))
 			fmt.Printf("Source: %s\n", job.Source)
 			fmt.Println(strings.Repeat("-", 80))
 		}

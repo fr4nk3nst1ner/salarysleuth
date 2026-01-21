@@ -49,6 +49,16 @@ func PrintBanner(silence bool) {
 	}
 }
 
+// FormatURL formats a URL, optionally as a clickable terminal hyperlink using OSC 8 escape sequence
+func FormatURL(url string, useHyperlink bool) string {
+	if !useHyperlink {
+		return url
+	}
+	// OSC 8 terminal hyperlink format: \033]8;;URL\033\\TEXT\033]8;;\033\\
+	// Using \a (BEL) as the terminator for wider compatibility
+	return fmt.Sprintf("\033]8;;%s\a%s\033]8;;\a", url, "View Job")
+}
+
 // ColorizeSalary applies color formatting to salary strings
 func ColorizeSalary(salary string) string {
 	if salary == "" || salary == "Not Available" {
