@@ -229,7 +229,8 @@ func main() {
 
 		// Print table rows
 		for _, job := range filteredJobs {
-			fmt.Printf("\033[35m%-15s\033[0m %-25s %-37s %-20s %s\n",
+			// Salary column uses %-36s to compensate for ~11 invisible ANSI color escape chars
+			fmt.Printf("\033[35m%-15s\033[0m %-34s %-37s %-20s %s\n",
 				truncateString(job.Company, 14),
 				ui.ColorizeSalary(job.LevelSalary),
 				truncateString(job.Title, 36),
