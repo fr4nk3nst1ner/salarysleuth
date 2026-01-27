@@ -1,0 +1,38 @@
+# Git
+.git
+.gitignore
+
+# IDE
+.idea
+.vscode
+*.swp
+*.swo
+
+# Build artifacts
+*.exe
+*.dll
+*.so
+*.dylib
+
+# Test files
+*_test.go
+
+# Documentation
+*.md
+!go.mod
+!readme.md
+
+# Downloaded archives
+*.tar.gz
+*.zip
+
+# Data files (will be mounted as volume)
+jobtracker/data/
+
+# Misc
+.DS_Store
+Thumbs.db
+
+# Keep vendor directories for offline builds
+!vendor/
+!jobtracker/vendor/

@@ -1,0 +1,223 @@
+# SalarySleuth Job Tracker Configuration
+# Edit this file to customize job filtering and display
+
+# =============================================================================
+# SCRAPER SETTINGS
+# =============================================================================
+scraper:
+  pages: 20
+  description: "Offensive Security"
+
+# =============================================================================
+# TELEGRAM NOTIFICATIONS
+# =============================================================================
+# Note: Bot token and chat ID are loaded from .env file (TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID)
+telegram:
+  # Set to false to disable notifications
+  enabled: true
+
+# =============================================================================
+# JOB FILTERING RULES
+# =============================================================================
+# Jobs are tagged based on these rules, then filtered based on display settings
+
+filters:
+  # --------------------------------------------------------------------------
+  # INCLUDE RULES - Jobs matching these are tagged and potentially included
+  # --------------------------------------------------------------------------
+  
+  # Job categories - jobs matching these keywords get tagged with the category
+  categories:
+    penetration_testing:
+      keywords:
+        - "penetration test"
+        - "pentest"
+        - "pen test"
+        - "ethical hack"
+      display_name: "Penetration Testing"
+      
+    red_team:
+      keywords:
+        - "red team"
+        - "adversary"
+        - "purple team"
+      display_name: "Red Team"
+      
+    appsec:
+      keywords:
+        - "appsec"
+        - "application security"
+        - "product security"
+        - "software security"
+      display_name: "AppSec"
+      
+    offensive_security:
+      keywords:
+        - "offensive security"
+        - "offensive"
+        - "attack"
+      display_name: "Offensive Security"
+      
+    security_research:
+      keywords:
+        - "security research"
+        - "vulnerability research"
+        - "exploit"
+        - "0day"
+        - "zero day"
+      display_name: "Security Research"
+      
+    cloud_security:
+      keywords:
+        - "cloud security"
+        - "aws security"
+        - "azure security"
+        - "gcp security"
+      display_name: "Cloud Security"
+
+  # Role levels - detect management vs IC
+  levels:
+    executive:
+      keywords:
+        - "ciso"
+        - "chief"
+        - "vp "
+        - "vice president"
+        - "director"
+      display_name: "Executive"
+      
+    management:
+      keywords:
+        - "manager"
+        - "management"
+        - "head of"
+        - "lead"
+        - "principal"
+      display_name: "Management/Lead"
+      
+    senior:
+      keywords:
+        - "senior"
+        - "sr."
+        - "sr "
+        - "staff"
+      display_name: "Senior IC"
+      
+    mid:
+      keywords:
+        - "ii"
+        - "iii"
+        - "2"
+        - "3"
+      display_name: "Mid-Level"
+      
+    junior:
+      keywords:
+        - "junior"
+        - "jr."
+        - "jr "
+        - "entry"
+        - "associate"
+        - "intern"
+      display_name: "Junior/Entry"
+
+  # Certifications mentioned in job titles
+  certifications:
+    oscp:
+      keywords:
+        - "oscp"
+      display_name: "OSCP"
+      
+    osce:
+      keywords:
+        - "osce"
+        - "oswe"
+        - "osep"
+        - "osed"
+      display_name: "OSCE/OSWE/OSEP"
+      
+    cissp:
+      keywords:
+        - "cissp"
+      display_name: "CISSP"
+      
+    ceh:
+      keywords:
+        - "ceh"
+        - "certified ethical hacker"
+      display_name: "CEH"
+
+  # Work arrangement
+  remote:
+    keywords:
+      - "remote"
+      - "work from home"
+      - "wfh"
+      - "distributed"
+    display_name: "Remote"
+
+  # --------------------------------------------------------------------------
+  # EXCLUDE RULES - Jobs matching these are filtered OUT before display
+  # --------------------------------------------------------------------------
+  exclude:
+    # Roles that are NOT offensive security focused
+    defensive_roles:
+      - "soc analyst"
+      - "incident response"
+      - "blue team"
+      - "defensive"
+      - "detection"
+      - "threat intel"
+      - "forensic"
+      
+    # Non-security roles
+    non_security:
+      - "software engineer"
+      - "backend engineer"
+      - "frontend engineer"
+      - "full stack"
+      - "devops"
+      - "sre"
+      - "data engineer"
+      - "ml engineer"
+      - "machine learning"
+      - "product manager"
+      - "project manager"
+      - "program manager"
+      - "recruiter"
+      - "sales"
+      - "marketing"
+      - "customer success"
+      - "support engineer"
+      - "it support"
+      - "helpdesk"
+      
+    # Compliance/GRC roles
+    compliance:
+      - "compliance"
+      - "grc"
+      - "governance"
+      - "risk management"
+      - "auditor"
+      - "audit"
+
+# =============================================================================
+# DISPLAY SETTINGS
+# =============================================================================
+display:
+  # Show all jobs and let user filter on the web page
+  show_all_jobs: true
+  
+  # Default filters applied when page loads (empty = show all)
+  # Users can change these via the UI
+  default_filters:
+    categories: []      # e.g., ["penetration_testing", "red_team"]
+    levels: []          # e.g., ["senior", "mid"]
+    certifications: []  # e.g., ["oscp"]
+    remote_only: false
+    
+  # Jobs per page
+  page_size: 50
+  
+  # Sort order: "newest", "salary_high", "salary_low", "company"
+  default_sort: "newest"

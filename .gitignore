@@ -6,3 +6,29 @@ salarysleuth.go.bak
 # go.sum
 output.txt
 .salarysleuth/
+
+# Environment files with secrets
+.env
+*.env
+!.env.example
+
+# Jobtracker specific
+jobtracker/.env
+jobtracker/data/
+jobtracker/logs/
+jobtracker/jobtracker
+
+# IDE and editor files
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Downloaded archives
+*.tar.gz
+*.zip
