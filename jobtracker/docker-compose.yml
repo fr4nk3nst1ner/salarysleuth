@@ -1,0 +1,27 @@
+version: '3.8'
+
+services:
+  # Web server - always running, displays job listings
+  # Note: The scraper runs natively on the host via cron (see install-weekly-cron.sh)
+  web:
+    build:
+      context: ..
+      dockerfile: jobtracker/Dockerfile
+    container_name: offsec-jobs-web
+    restart: unless-stopped
+    network_mode: host
+    volumes:
+      # Mount the host data directory so the web server can read scraper results
+      - ./data:/app/data
+    env_file:
+      - .env
+    environment:
+      - WEB_PORT=9090
+      - DATA_DIR=/app/data
+    command: ["web"]
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:9090/health || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
