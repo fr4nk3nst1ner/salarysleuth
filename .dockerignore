@@ -26,6 +26,11 @@
 *.tar.gz
 *.zip
 
+# Environment files with secrets
+.env
+*.env
+jobtracker/.env
+
 # Data files (will be mounted as volume)
 jobtracker/data/
 

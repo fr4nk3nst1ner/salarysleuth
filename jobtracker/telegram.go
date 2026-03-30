@@ -125,10 +125,14 @@ func escapeMarkdown(text string) string {
 }
 
 func sendTelegramMessage(text string) error {
-	url := fmt.Sprintf("https://api.telegram.org/bot%s/sendMessage", config.TelegramBotToken)
+	return sendTelegramMessageWithCreds(config.TelegramBotToken, config.TelegramChatID, text)
+}
+
+func sendTelegramMessageWithCreds(botToken, chatID, text string) error {
+	url := fmt.Sprintf("https://api.telegram.org/bot%s/sendMessage", botToken)
 
 	msg := TelegramMessage{
-		ChatID:    config.TelegramChatID,
+		ChatID:    chatID,
 		Text:      text,
 		ParseMode: "MarkdownV2",
 	}
@@ -145,7 +149,6 @@ func sendTelegramMessage(text string) error {
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		// Try again with plain text if Markdown fails
 		msg.ParseMode = ""
 		msg.Text = stripMarkdown(text)
 		jsonData, _ = json.Marshal(msg)
