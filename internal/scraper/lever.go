@@ -49,58 +49,36 @@ type LeverJob struct {
 	CreatedAt     int64  `json:"createdAt"`
 }
 
-// List of major tech companies that use Lever
+// List of companies that use Lever for job postings (verified active as of Mar 2026)
 var leverCompanies = []string{
+	// Security-focused companies
+	"sophos",
+	"sysdig",
+	"secureframe",
+	"upguard",
+	"anomali",
+	"threatconnect",
+	"zimperium",
+	"coalfire",
+	"stackhawk",
+	// Large tech companies with security roles
+	"palantir",
+	"spotify",
+	"veeva",
 	"plaid",
-	"figma",
-	"notion",
-	"netflix",
-	"openai",
-	"anthropic",
-	"scale",
-	"anduril",
-	"verkada",
-	"flexport",
-	"faire",
-	"intercom",
-	"carta",
-	"retool",
-	"samsara",
-	"duolingo",
-	"cruise",
-	"nuro",
-	"waymo",
-	"aurora",
 	"zoox",
-	"rivian",
-	"lucid",
-	"airtable",
-	"amplitude",
-	"mixpanel",
-	"segment",
-	"braze",
-	"iterable",
-	"onelogin",
-	"okta",
-	"auth0",
-	"lacework",
-	"snyk",
-	"crowdstrike",
-	"sentinelone",
-	"palo-alto-networks",
-	"cloudflare",
-	"fastly",
-	"netlify",
-	"supabase",
-	"planetscale",
-	"cockroachlabs",
-	"timescale",
-	"yugabyte",
-	"materialize",
-	"starburst",
-	"dremio",
-	"fivetran",
-	"airbyte",
+	"coupa",
+	"jumpcloud",
+	"hive",
+	"neon",
+	"canarytechnologies",
+	"prosper",
+	"nextgenfed",
+	"greenlight",
+	"mindtickle",
+	"highspot",
+	"color",
+	"kabam",
 }
 
 // ScrapeLever scrapes job listings from Lever's public API
@@ -140,8 +118,20 @@ func ScrapeLever(description string, pages int, debug bool, proxyURL string, pro
 		// Filter and process jobs
 		matchingJobs := 0
 		for _, job := range jobs {
-			// Check if job title matches search criteria
-			if !strings.Contains(strings.ToLower(job.Text), strings.ToLower(description)) {
+			titleLower := strings.ToLower(job.Text)
+			descLower := strings.ToLower(description)
+			fullTextLower := strings.ToLower(job.DescriptionPlain + " " + job.AdditionalPlain)
+
+			matched := strings.Contains(titleLower, descLower) || strings.Contains(fullTextLower, descLower)
+			if !matched {
+				for _, word := range strings.Fields(descLower) {
+					if len(word) >= 4 && strings.Contains(titleLower, word) {
+						matched = true
+						break
+					}
+				}
+			}
+			if !matched {
 				continue
 			}
 
@@ -226,6 +216,11 @@ func fetchLeverJobs(httpClient *http.Client, company string, debug bool) ([]Leve
 		fmt.Printf("Lever API response preview:\n%s\n", preview)
 	}
 
+	// Lever returns {"ok":false,"error":"..."} for invalid/inactive boards
+	if len(body) > 0 && body[0] == '{' {
+		return nil, fmt.Errorf("company board not found or inactive")
+	}
+
 	var jobs []LeverJob
 	if err := json.Unmarshal(body, &jobs); err != nil {
 		return nil, fmt.Errorf("failed to parse JSON response: %v", err)
@@ -287,58 +282,33 @@ func formatNumber(n int) string {
 
 // formatLeverCompanyName formats a company slug to a proper display name
 func formatLeverCompanyName(slug string) string {
-	// Special cases for company names
 	specialNames := map[string]string{
+		"sophos":             "Sophos",
+		"sysdig":             "Sysdig",
+		"secureframe":        "Secureframe",
+		"upguard":            "UpGuard",
+		"anomali":            "Anomali",
+		"threatconnect":      "ThreatConnect",
+		"zimperium":          "Zimperium",
+		"coalfire":           "Coalfire",
+		"stackhawk":          "StackHawk",
+		"palantir":           "Palantir",
+		"spotify":            "Spotify",
+		"veeva":              "Veeva Systems",
 		"plaid":              "Plaid",
-		"figma":              "Figma",
-		"notion":             "Notion",
-		"netflix":            "Netflix",
-		"openai":             "OpenAI",
-		"anthropic":          "Anthropic",
-		"scale":              "Scale AI",
-		"anduril":            "Anduril",
-		"verkada":            "Verkada",
-		"flexport":           "Flexport",
-		"faire":              "Faire",
-		"intercom":           "Intercom",
-		"carta":              "Carta",
-		"retool":             "Retool",
-		"samsara":            "Samsara",
-		"duolingo":           "Duolingo",
-		"cruise":             "Cruise",
-		"nuro":               "Nuro",
-		"waymo":              "Waymo",
-		"aurora":             "Aurora",
 		"zoox":               "Zoox",
-		"rivian":             "Rivian",
-		"lucid":              "Lucid Motors",
-		"airtable":           "Airtable",
-		"amplitude":          "Amplitude",
-		"mixpanel":           "Mixpanel",
-		"segment":            "Segment",
-		"braze":              "Braze",
-		"iterable":           "Iterable",
-		"onelogin":           "OneLogin",
-		"okta":               "Okta",
-		"auth0":              "Auth0",
-		"lacework":           "Lacework",
-		"snyk":               "Snyk",
-		"crowdstrike":        "CrowdStrike",
-		"sentinelone":        "SentinelOne",
-		"palo-alto-networks": "Palo Alto Networks",
-		"cloudflare":         "Cloudflare",
-		"fastly":             "Fastly",
-		"netlify":            "Netlify",
-		"supabase":           "Supabase",
-		"planetscale":        "PlanetScale",
-		"cockroachlabs":      "Cockroach Labs",
-		"timescale":          "Timescale",
-		"yugabyte":           "Yugabyte",
-		"materialize":        "Materialize",
-		"starburst":          "Starburst",
-		"dremio":             "Dremio",
-		"fivetran":           "Fivetran",
-		"airbyte":            "Airbyte",
+		"coupa":              "Coupa",
+		"jumpcloud":          "JumpCloud",
+		"hive":               "Hive",
+		"neon":               "Neon",
+		"canarytechnologies":  "Canary Technologies",
+		"prosper":            "Prosper",
+		"nextgenfed":         "NextGen Federal Systems",
+		"greenlight":         "Greenlight",
+		"mindtickle":         "MindTickle",
+		"highspot":           "Highspot",
+		"color":              "Color Health",
+		"kabam":              "Kabam",
 	}
 
 	if name, ok := specialNames[slug]; ok {

@@ -353,8 +353,12 @@ func getStaticSalary(companyName string) (string, bool) {
 		}
 	}
 	
-	// Try partial match for companies with longer names
+	// Try partial match only for multi-word company names (>= 6 chars)
+	// to avoid false positives from short entries like "x", "ea", "box"
 	for company, salary := range staticSalaryData {
+		if len(company) < 6 {
+			continue
+		}
 		if strings.Contains(normalized, company) || strings.Contains(company, normalized) {
 			return salary, true
 		}
@@ -436,15 +440,13 @@ func GetSalaryFromLevelsFyi(companyName string, debug bool) (string, error) {
 	}
 
 	// Parse the salary from the levels.fyi page
-	// Try multiple selectors as the page structure may vary
+	// Use targeted selectors and validate the salary range to avoid garbage data
 	salaryElem := ""
 	
-	// Try different selectors
 	selectors := []string{
 		"td:contains('Software Engineer Salary')",
 		"[data-testid='salary-value']",
 		".salary-value",
-		"span:contains('$')",
 	}
 	
 	for _, selector := range selectors {
@@ -454,9 +456,28 @@ func GetSalaryFromLevelsFyi(companyName string, debug bool) (string, error) {
 		}
 		text := strings.TrimSpace(elem.Text())
 		if text != "" && strings.Contains(text, "$") {
-			salaryElem = text
-			break
+			val := ExtractNumericValue(text)
+			if val >= 80000 && val <= 2000000 {
+				salaryElem = text
+				break
+			}
 		}
+	}
+	
+	// Last resort: look for salary-like patterns in compensation-related elements
+	if salaryElem == "" {
+		doc.Find("h2, h3, [class*='compensation'], [class*='salary'], [class*='total-comp']").Each(func(i int, s *goquery.Selection) {
+			if salaryElem != "" {
+				return
+			}
+			text := strings.TrimSpace(s.Text())
+			if strings.Contains(text, "$") && len(text) < 30 {
+				val := ExtractNumericValue(text)
+				if val >= 80000 && val <= 2000000 {
+					salaryElem = text
+				}
+			}
+		})
 	}
 
 	if salaryElem == "" {

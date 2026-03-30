@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"flag"
 	"fmt"
@@ -9,7 +10,9 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"strconv"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -17,6 +20,27 @@ import (
 func stripANSI(str string) string {
 	ansiRegex := regexp.MustCompile(`\x1b\[[0-9;]*m`)
 	return ansiRegex.ReplaceAllString(str, "")
+}
+
+// isValidSalary checks if a salary string is within reasonable bounds
+// Rejects salaries over $5 million as they are likely parsing errors
+func isValidSalary(salary string) bool {
+	if salary == "" {
+		return false
+	}
+	// Extract numeric value from salary string
+	re := regexp.MustCompile(`\$([0-9,]+)`)
+	match := re.FindStringSubmatch(salary)
+	if match == nil {
+		return true // Can't parse, assume valid
+	}
+	numStr := strings.ReplaceAll(match[1], ",", "")
+	num, err := strconv.ParseInt(numStr, 10, 64)
+	if err != nil {
+		return true // Can't parse, assume valid
+	}
+	// Reject if salary is over $5 million (clearly an error)
+	return num <= 5000000
 }
 
 // Job represents a curated job listing
@@ -168,10 +192,11 @@ func main() {
 			log.Fatalf("Failed to save job store: %v", err)
 		}
 
-		// Send notifications for new jobs
+		// Notify users who have Telegram alerts configured
 		if len(newJobs) > 0 {
-			log.Printf("Sending Telegram notifications for %d new jobs...\n", len(newJobs))
-			sendTelegramNotifications(newJobs)
+			log.Printf("Found %d new jobs, notifying subscribed users...\n", len(newJobs))
+			ensureAlertsDir()
+			notifySubscribedUsers("Default OffSec Scan", newJobs)
 		} else {
 			log.Println("No new jobs found")
 		}
@@ -208,18 +233,111 @@ func getEnvOrDefault(key, defaultVal string) string {
 
 // runSalarySleuth executes the salarysleuth command and parses the output
 func runSalarySleuth(description string, pages int) ([]Job, error) {
-	// Find the salarysleuth executable
+	return runSalarySleuthWithContext(context.Background(), description, pages)
+}
+
+// runSalarySleuthWithContext runs each source in parallel with per-source timeouts.
+// LinkedIn is fast (pages-based), Greenhouse/Lever iterate company lists and are slower.
+func runSalarySleuthWithContext(ctx context.Context, description string, pages int) ([]Job, error) {
 	salarysleuthPath := findSalarySleuthExecutable()
-	
-	cmd := exec.Command(salarysleuthPath,
+	sources := []string{"linkedin", "greenhouse", "lever"}
+	perSourceTimeout := 3 * time.Minute
+
+	type sourceResult struct {
+		source string
+		jobs   []Job
+		err    error
+	}
+
+	resultsCh := make(chan sourceResult, len(sources))
+	var wg sync.WaitGroup
+
+	for _, src := range sources {
+		wg.Add(1)
+		go func(source string) {
+			defer wg.Done()
+			srcCtx, srcCancel := context.WithTimeout(ctx, perSourceTimeout)
+			defer srcCancel()
+
+			cmd := exec.CommandContext(srcCtx, salarysleuthPath,
+				"-nobanner",
+				"-pages", fmt.Sprintf("%d", pages),
+				"-source", source,
+				"-description", description,
+			)
+
+			output, err := cmd.CombinedOutput()
+			if err != nil {
+				if ctx.Err() == context.Canceled {
+					resultsCh <- sourceResult{source: source, err: fmt.Errorf("search cancelled")}
+					return
+				}
+				if srcCtx.Err() == context.DeadlineExceeded {
+					log.Printf("Custom search source %s timed out after %v", source, perSourceTimeout)
+					resultsCh <- sourceResult{source: source, err: nil, jobs: nil}
+					return
+				}
+				resultsCh <- sourceResult{source: source, err: fmt.Errorf("%s error: %v", source, err)}
+				return
+			}
+
+			jobs, parseErr := parseScraperOutput(string(output))
+			if parseErr != nil {
+				resultsCh <- sourceResult{source: source, err: parseErr}
+				return
+			}
+			log.Printf("Custom search source %s returned %d jobs", source, len(jobs))
+			resultsCh <- sourceResult{source: source, jobs: jobs}
+		}(src)
+	}
+
+	go func() {
+		wg.Wait()
+		close(resultsCh)
+	}()
+
+	var allJobs []Job
+	var firstErr error
+	for res := range resultsCh {
+		if res.err != nil {
+			if strings.Contains(res.err.Error(), "search cancelled") {
+				return nil, fmt.Errorf("search cancelled")
+			}
+			if firstErr == nil {
+				firstErr = res.err
+			}
+			continue
+		}
+		allJobs = append(allJobs, res.jobs...)
+	}
+
+	if len(allJobs) == 0 && firstErr != nil {
+		return nil, firstErr
+	}
+
+	return allJobs, nil
+}
+
+// runSingleSourceSearch runs the scraper for a single source (linkedin, greenhouse, lever)
+func runSingleSourceSearch(ctx context.Context, description string, pages int, source string) ([]Job, error) {
+	salarysleuthPath := findSalarySleuthExecutable()
+
+	cmd := exec.CommandContext(ctx, salarysleuthPath,
 		"-nobanner",
 		"-pages", fmt.Sprintf("%d", pages),
+		"-source", source,
 		"-description", description,
 	)
 
 	output, err := cmd.CombinedOutput()
 	if err != nil {
-		return nil, fmt.Errorf("scraper error: %v\nOutput: %s", err, string(output))
+		if ctx.Err() == context.Canceled {
+			return nil, fmt.Errorf("search cancelled")
+		}
+		if ctx.Err() == context.DeadlineExceeded {
+			return nil, fmt.Errorf("%s timed out", source)
+		}
+		return nil, fmt.Errorf("%s error: %v", source, err)
 	}
 
 	return parseScraperOutput(string(output))
@@ -347,19 +465,19 @@ func parseScraperOutput(output string) ([]Job, error) {
 	} else if strings.HasPrefix(line, "Salary Range: ") {
 		salary := strings.TrimPrefix(line, "Salary Range: ")
 		salary = stripANSI(salary) // Remove ANSI color codes
-		if salary != "" && salary != "Not Available" {
+		if salary != "" && salary != "Not Available" && isValidSalary(salary) {
 			currentJob.SalaryRange = salary
 		}
 	} else if strings.HasPrefix(line, "Levels.fyi Average: ") {
 		salary := strings.TrimPrefix(line, "Levels.fyi Average: ")
 		salary = stripANSI(salary) // Remove ANSI color codes
-		if salary != "" && salary != "No Data" {
+		if salary != "" && salary != "No Data" && isValidSalary(salary) {
 			currentJob.LevelSalary = salary
 		}
 	} else if strings.HasPrefix(line, "Levels.fyi Median: ") {
 		salary := strings.TrimPrefix(line, "Levels.fyi Median: ")
 		salary = stripANSI(salary) // Remove ANSI color codes
-		if salary != "" && salary != "No Data" && currentJob.LevelSalary == "" {
+		if salary != "" && salary != "No Data" && currentJob.LevelSalary == "" && isValidSalary(salary) {
 			currentJob.LevelSalary = salary
 		}
 	}
@@ -521,6 +639,16 @@ func loadJobStore() JobStore {
 	if err := json.Unmarshal(data, &store); err != nil {
 		log.Printf("Warning: Could not parse job store: %v", err)
 		return JobStore{Jobs: []Job{}}
+	}
+
+	// Clean up any invalid salary data
+	for i := range store.Jobs {
+		if !isValidSalary(store.Jobs[i].LevelSalary) {
+			store.Jobs[i].LevelSalary = ""
+		}
+		if !isValidSalary(store.Jobs[i].SalaryRange) {
+			store.Jobs[i].SalaryRange = ""
+		}
 	}
 
 	return store

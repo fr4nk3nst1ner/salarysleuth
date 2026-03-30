@@ -245,7 +245,7 @@ func main() {
 			fmt.Printf("Company: %s\n", job.Company)
 			fmt.Printf("Title: %s\n", job.Title)
 			fmt.Printf("Location: %s\n", job.Location)
-			// fmt.Printf("Salary Range: %s\n", ui.ColorizeSalary(job.SalaryRange))
+			fmt.Printf("Salary Range: %s\n", ui.ColorizeSalary(job.SalaryRange))
 			if !*noLevels && job.LevelSalary != "" && job.LevelSalary != "No Data" {
 				fmt.Printf("Levels.fyi Average: %s\n", ui.ColorizeSalary(job.LevelSalary))
 			}

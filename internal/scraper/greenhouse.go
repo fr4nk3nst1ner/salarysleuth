@@ -144,10 +144,18 @@ func ScrapeGreenhouse(description string, pages int, debug bool, proxyURL string
 		// Filter jobs by description and process them
 		matchingJobs := 0
 		for _, job := range jobs {
-			// Check if job title or content matches search criteria
-			titleMatch := strings.Contains(strings.ToLower(job.Title), strings.ToLower(description))
-			
-			if !titleMatch {
+			titleLower := strings.ToLower(job.Title)
+			descLower := strings.ToLower(description)
+			matched := strings.Contains(titleLower, descLower)
+			if !matched {
+				for _, word := range strings.Fields(descLower) {
+					if len(word) >= 4 && strings.Contains(titleLower, word) {
+						matched = true
+						break
+					}
+				}
+			}
+			if !matched {
 				continue
 			}
 
